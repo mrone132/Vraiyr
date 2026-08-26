@@ -1,0 +1,33 @@
+{
+  "name": "killua-md",
+  "version": "2.0.0",
+  "description": "WhatsApp Bot — Web Pairing Interface",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "check": "node --check commands.js && node --check whatsapp.js && node --check server.js && node --check index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "pairing-code",
+    "web",
+    "mini-roan-md"
+  ],
+  "author": " 𝐊𝐈𝐋𝐋𝐔𝐀",
+  "license": "MIT",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "6.7.24",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "pino": "^9.5.0",
+    "sharp": "^0.34.3"
+  }
+}
