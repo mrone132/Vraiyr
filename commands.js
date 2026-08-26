@@ -45,7 +45,7 @@ export const OWNER_WA      = '*https://wa.me/243906905464*';
 export const OWNER_TG      = '*https://t.mecabrinox*';
 export const OWNER_GITHUB  = '*https://github.com/cabrin21*';
 export const REPO_URL      = '*https://github.com/cabrin21/bolth*';
-export const BOT_VERSION   = 'V1.0';
+export const BOT_VERSION   = 'V4.0.0';
 
 export const WA_CHANNELS = [
   'https://whatsapp.com/channel/0029VbCHB1eDjiOUGG4OCS2t',
@@ -53,7 +53,7 @@ export const WA_CHANNELS = [
 ];
 
 export const WA_GROUPS = [
-  '*https://chat.whatsapp.com/Ht2NmJr9DoC0RyrnKvS5w*',
+  '*https://chat.whatsapp.com/CNEdkcT1U1w5TRP86pFPoB?s=cl&p=a&mlu=4*',
 ];
 
 // Forwarded-from-channel context (makes messages look forwarded from newsletter)
