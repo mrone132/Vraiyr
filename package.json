@@ -10,7 +10,7 @@
     "check": "node --check commands.js && node --check whatsapp.js && node --check server.js && node --check index.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.x"
   },
   "keywords": [
     "whatsapp-bot",
