@@ -3,9 +3,12 @@
 import axios from 'axios';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -149,42 +152,68 @@ async function getGroupAdmins(natsu, jid) {
   try {
     const now = Date.now();
     const cached = _groupMetaCache.get(jid);
-    let meta;
-    if (cached && cached.exp > now) {
-      meta = cached.meta;
-    } else {
-      meta = await natsu.groupMetadata(jid);
-      _groupMetaCache.set(jid, { meta, exp: now + GROUP_META_TTL });
-    }
-    const admins = meta.participants.filter(p => p.admin).map(p => p.id);
+    const meta = cached && cached.exp > now ? cached.meta : await natsu.groupMetadata(jid);
+    if (!cached || cached.exp <= now) _groupMetaCache.set(jid, { meta, exp: now + GROUP_META_TTL });
+
+    const admins = (meta.participants || []).filter(p => p.admin).map(p => p.id).filter(Boolean);
+    const botIds = new Set();
     const rawId = natsu.user?.id || '';
     const lidId = natsu.user?.lid || '';
+    if (rawId) botIds.add(rawId);
+    if (lidId) botIds.add(lidId);
     const botPhone = rawId.split(':')[0].split('@')[0];
-    const botJid = botPhone ? `${botPhone}@s.whatsapp.net` : '';
-    const botLid = lidId ? lidId.split(':')[0].split('@')[0] + '@lid' : '';
-    const botIsAdmin =
-      admins.includes(botJid) ||
-      (botLid && admins.includes(botLid)) ||
-      meta.participants.some(p => p.admin && (p.id === botJid || p.id === botLid));
-    return { meta, admins, botIsAdmin, botJid };
-  } catch { return { meta: null, admins: [], botIsAdmin: false, botJid: '' }; }
+    if (botPhone) botIds.add(`${botPhone}@s.whatsapp.net`);
+    const botLid = lidId.split(':')[0].split('@')[0];
+    if (botLid) botIds.add(`${botLid}@lid`);
+
+    // Baileys can expose participants as LID JIDs. Match the bot against both
+    // the participant id and its phone/lid fields when available.
+    const botParticipant = (meta.participants || []).find(p =>
+      botIds.has(p.id) || botIds.has(p.lid) ||
+      (p.phoneNumber && botPhone && normalizeNumber(p.phoneNumber) === normalizeNumber(botPhone))
+    );
+    const botIsAdmin = !!botParticipant?.admin || admins.some(a => botIds.has(a));
+    return { meta, admins, botIsAdmin, botJid: botParticipant?.id || rawId, botIds };
+  } catch {
+    return { meta: null, admins: [], botIsAdmin: false, botJid: '', botIds: new Set() };
+  }
 }
 
 // Invalidate cache when a group changes
 export function invalidateGroupCache(jid) { _groupMetaCache.delete(jid); }
 
 // Check if a given JID is a group admin (handles both regular & LID format)
-function isGroupAdmin(adminsList, userJid) {
+function isGroupAdmin(adminsList, userJid, meta = null) {
   if (!userJid) return false;
-  const phone = userJid.split('@')[0].split(':')[0];
-  return adminsList.some(a => {
-    const aPhone = a.split('@')[0].split(':')[0];
-    return a === userJid || aPhone === phone;
+  if (adminsList.includes(userJid)) return true;
+  const phone = normalizeNumber(userJid.split('@')[0].split(':')[0]);
+  if (!phone) return false;
+  return (meta?.participants || []).some(p => {
+    if (!p.admin) return false;
+    if (p.id === userJid || p.lid === userJid) return true;
+    const pPhone = normalizeNumber(p.phoneNumber || p.id?.split('@')[0]?.split(':')[0] || '');
+    return pPhone && pPhone === phone;
   });
 }
 
 function sender(msg) {
   return msg.key.participant || msg.key.remoteJid;
+}
+
+function senderNumber(msg) {
+  const candidates = [
+    msg.key?.participantAlt,
+    msg.key?.senderPn,
+    msg.key?.participant,
+    msg.key?.remoteJidAlt,
+    msg.key?.remoteJid,
+  ].filter(Boolean);
+  for (const value of candidates) {
+    const n = normalizeNumber(String(value).split('@')[0].split(':')[0]);
+    // WhatsApp LIDs are often long numeric IDs; participantAlt/senderPn is preferred.
+    if (n) return n;
+  }
+  return '';
 }
 
 function normalizeNumber(value = '') {
@@ -203,7 +232,7 @@ async function requireGroupAdmin(natsu, jid, msg, senderJid, reply) {
   const info = await getGroupAdmins(natsu, jid);
   if (!info.meta) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ʟɪʀᴇ ʟᴇ ɢʀᴏᴜᴘᴇ.*'); return null; }
   if (!info.botIsAdmin) { await reply('*❌ ʟᴇ ʙᴏᴛ ᴅᴏɪᴛ ᴇ̂ᴛʀᴇ ᴀᴅᴍɪɴ.*'); return null; }
-  if (!msg.key?.fromMe && !isGroupAdmin(info.admins, senderJid)) { await reply('*❌ ᴀᴅᴍɪɴs ᴏɴʟʏ.*'); return null; }
+  if (!msg.key?.fromMe && !isGroupAdmin(info.admins, senderJid, info.meta)) { await reply('*❌ ᴀᴅᴍɪɴs ᴏɴʟʏ.*'); return null; }
   return info;
 }
 
@@ -234,11 +263,9 @@ async function askAI(prompt, model = 'gpt') {
     story: 'openai', trivia: 'openai',
   };
   const m = map[model] || 'openai';
-  const urls = [
-    `https://text.pollinations.ai/${q}?model=${m}`,
-    `https://text.pollinations.ai/${q}`,
-    `https://api.dreaded.site/api/chatgpt?text=${q}`,
-  ];
+  const urls = [];
+  const pollenKey = process.env.POLLINATIONS_API_KEY || '';
+  if (pollenKey) urls.push(`https://gen.pollinations.ai/text/${q}?model=${m}&key=${encodeURIComponent(pollenKey)}`);
   const parse = (d) => {
     if (typeof d === 'string' && d.trim().startsWith('{')) {
       try { d = JSON.parse(d); } catch {}
@@ -248,15 +275,12 @@ async function askAI(prompt, model = 'gpt') {
       : (d?.BK9 || d?.result || d?.response || d?.data?.response || d?.data?.message ||
          d?.message || d?.answer || d?.gpt4 || d?.result?.prompt || null);
   };
-  const call = (u) => axios.get(u, { timeout: 6000, responseType: 'text', transformResponse: [(d) => d] })
+  const call = (u) => axios.get(u, { timeout: 15000, responseType: 'text', transformResponse: [(d) => d], headers: pollenKey ? { Authorization: `Bearer ${pollenKey}` } : {} })
     .then(r => parse(r.data)).then(a => a && String(a).trim() ? String(a).trim() : Promise.reject('empty'));
-  try {
-    return await Promise.any(urls.slice(0, 2).map(call));
-  } catch {}
-  for (const u of urls.slice(2)) {
-    try { const a = await call(u); if (a) return a; } catch {}
-  }
-  return `🐐 *${model.toUpperCase()}* ᴇsᴛ ᴇɴ ᴘᴀᴜsᴇ. ʀéᴇssᴀɪᴇ ᴅᴀɴs ᴜɴ ɪɴsᴛᴀɴᴛ.`;
+  if (urls.length) { try { const a = await call(urls[0]); if (a) return a; } catch {} }
+  return pollenKey
+    ? `🐐 *${model.toUpperCase()}* indisponible pour le moment. Réessaie dans quelques secondes.`
+    : `⚠️ *${model.toUpperCase()}* nécessite POLLINATIONS_API_KEY dans .env.`;
 }
 
 // Image search / fetch helper — timeout reduced from 12s to 7s
@@ -268,7 +292,10 @@ async function fetchAnyImage(urls) {
       const url =
         d?.url || d?.image || d?.message ||
         d?.result?.url || d?.result?.[0]?.url ||
-        (Array.isArray(d?.images) && d.images[0]) ||
+        d?.results?.[0]?.url ||
+        d?.data?.[0]?.url ||
+        d?.data?.[0]?.images?.jpg?.image_url ||
+        (Array.isArray(d?.images) && (typeof d.images[0] === 'string' ? d.images[0] : d.images[0]?.url)) ||
         (typeof d === 'string' && d.startsWith('http') ? d : null);
       if (url) return url;
     } catch {}
@@ -327,7 +354,7 @@ const MENU_GROUPS = {
   },
   '👥 ɢʀᴏᴜᴘᴇ & ᴀᴅᴍɪɴ': {
     emoji: '👥',
-    cmds: ['welcome','goodbye','groupinfo','members','tagall','hidetag','tagadmins','listadmins','promote','demote','add','kick','mute','unmute','grouplink','resetlink','closegc','opengc','antilink','warn','warns','resetwarn','left']
+    cmds: ['welcome','goodbye','groupinfo','members','admins','tagall','hidetag','tagadmins','listadmins','promote','demote','add','kick','mute','unmute','grouplink','resetlink','closegc','opengc','lock','unlock','antilink','warn','warns','resetwarn','kickadmins','kickall','rules','setrules','poll','vcf','left']
   },
   '👑 ᴏᴡɴᴇʀ & sʏsᴛᴇᴍ': {
     emoji: '👑',
@@ -339,7 +366,7 @@ const MENU_GROUPS = {
   },
   '🛠️ ᴏᴜᴛɪʟs & ᴜᴛɪʟɪᴛᴀɪʀᴇs': {
     emoji: '🛠️',
-    cmds: ['weatherwiki','currency','time','qrcode','readqr','shorturl','myip','iplookup','jid','getpp','github','npm','dictionary','recipe','book','remind','calculate','mathfact','sciencefact','translate','lyrics','afk','removebg','upscale','savestatus','react-ch']
+    cmds: ['weatherwiki','currency','time','mediastatus','qrcode','readqr','shorturl','myip','iplookup','jid','getpp','github','npm','dictionary','recipe','book','remind','calculate','mathfact','sciencefact','translate','lyrics','afk','removebg','upscale','savestatus','react-ch','apistatus']
   },
   '🕵️ ᴛʀᴀᴄᴋ & ɪɴғᴏ': {
     emoji: '🕵️',
@@ -375,7 +402,7 @@ const MENU_GROUPS = {
   },
   '📧 ᴛᴇᴍᴘᴍᴀɪʟ': {
     emoji: '📧',
-    cmds: ['newmail','readmail','deltmp','tempmail2','tempmail-inbox']
+    cmds: ['newmail','tempmail','readmail','inbox','deltmp','delmail','tempmail2','tempmail-inbox']
   },
   '💰 ᴄᴏᴍᴘᴛᴇ & ᴘᴀɪᴇᴍᴇɴᴛ': {
     emoji: '💰',
@@ -393,36 +420,27 @@ export const KNOWN_CMDS = (() => {
 function buildMenu(userName = '') {
   const activePrefix = getState().prefix || PREFIX;
   let body = '';
-  let category = 0;
 
+  // Menu en une seule colonne, comme dans ta capture.
   for (const [title, group] of Object.entries(MENU_GROUPS)) {
-    category++;
-    const cmds = group.cmds;
-    body += `\n╭━━〔 ${group.emoji} *${title}* 〕━━╮\n`;
-
-    for (let i = 0; i < cmds.length; i += 2) {
-      const left = `${activePrefix}${cmds[i]}`;
-      const right = cmds[i + 1] ? `${activePrefix}${cmds[i + 1]}` : '';
-      body += right
-        ? `│ ${group.emoji} ${left}   │ ${right}\n`
-        : `│ ${group.emoji} ${left}\n`;
-    }
+    const cleanTitle = title.replace(/^[^ ]+\s+/, '').toUpperCase();
+    body += `\n╭━━〔 ${group.emoji} *${cleanTitle}* 〕━━╮\n`;
+    for (const command of group.cmds) body += `│ ◈ ${activePrefix}${command}\n`;
     body += `╰━━━━━━━━━━━━━━━━━━━━╯\n`;
   }
 
-  return `╭━━━🍁 𝐊𝐈𝐋𝐋𝐔𝐀 - 𝗠𝗗 🍁━━━╮
-│ 👤 𝐔𝐒𝐄𝐑 : ${userName || 'You'}
-│ 👑 𝐃𝐄𝐕 : ${DEV_NAME}
-│ 🔱 𝐏𝐑𝐄𝐅𝐈𝐗 : ${activePrefix}
+  return `╭━━━〔 *${BOT_NAME}* 〕━━━╮
+│ 👤 User : ${userName || 'You'}
+│ 👑 Dev  : ${DEV_NAME}
+│ ⚡ Prefix : ${activePrefix}
 ╰━━━━━━━━━━━━━━━━━━━━╯
 
-🌌 *« Le GOAT ne parle pas, il laisse ses actions répondre. »*
-
+🌹 *« Le GOAT ne parle pas, il laisse ses actions répondre. »*
 ${body}
-╭━━〔 🍁 𝗞𝗜𝗟𝗟𝗨𝗔 𝗠𝗗 〕━━╮
+╭━━━〔 *KILLUA MD* 〕━━━╮
 │ ⚡ Fast • Stable • Intelligent
 │ 👑 Powered by ${DEV_NAME}
-╰━━━━━━━━━━━━━━━━━━╯`;
+╰━━━━━━━━━━━━━━━━━━━━╯`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -490,6 +508,57 @@ export async function handleGroupWelcome(natsu, update = {}) {
   }
 }
 
+function pIsBot(jid, meta, botIds = new Set()) {
+  if (botIds.has(jid)) return true;
+  const phone = normalizeNumber(jid?.split('@')[0]?.split(':')[0] || '');
+  return !!phone && (meta?.participants || []).some(p =>
+    (p.id === jid || p.lid === jid) && p.phoneNumber && normalizeNumber(p.phoneNumber) === phone
+  );
+}
+function findParticipant(meta, jid) {
+  if (!jid || !meta?.participants) return null;
+  const phone = normalizeNumber(String(jid).split('@')[0].split(':')[0]);
+  return meta.participants.find(p =>
+    p.id === jid || p.lid === jid ||
+    (phone && normalizeNumber(p.phoneNumber || String(p.id || '').split('@')[0].split(':')[0]) === phone)
+  ) || null;
+}
+
+function participantRole(meta, jid) {
+  const p = findParticipant(meta, jid);
+  if (!p) return 'member';
+  if (p.admin === 'superadmin') return 'owner';
+  if (p.admin) return 'admin';
+  return 'member';
+}
+
+function roleRank(role) {
+  return role === 'owner' ? 3 : role === 'admin' ? 2 : 1;
+}
+
+function isProtectedTarget(meta, target, state) {
+  const p = findParticipant(meta, target);
+  if (!p) return { protected: false, participant: null, role: 'member' };
+  const role = participantRole(meta, p.id);
+  const phone = normalizeNumber(p.phoneNumber || String(p.id || '').split('@')[0].split(':')[0]);
+  const owner = normalizeNumber(OWNER_NUMBER);
+  const protectedByOwner = !!phone && (phone === owner || state.sudo.includes(phone));
+  return { protected: protectedByOwner || role === 'owner', participant: p, role };
+}
+
+async function requireGroupOwnerOrCreator(natsu, jid, msg, senderJid, reply) {
+  const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+  if (!info) return null;
+  const role = participantRole(info.meta, senderJid);
+  const state = getState();
+  const creator = isOwnerOrSudo(msg, state, normalizeNumber(senderJid.split('@')[0]));
+  if (role !== 'owner' && !creator) {
+    await reply('*❌ ᴄᴇᴛᴛᴇ ᴄᴏᴍᴍᴀɴᴅᴇ ʀᴇ́sᴇʀᴠᴇ́ᴇ ᴀᴜ ᴘʀᴏᴘʀɪᴇ́ᴛᴀɪʀᴇ ᴅᴜ ɢʀᴏᴜᴘᴇ ᴏᴜ ᴀᴜ ᴏᴡɴᴇʀ ᴅᴜ ʙᴏᴛ.*');
+    return null;
+  }
+  return info;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN DISPATCHER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -499,7 +568,7 @@ export async function handleCommand(natsu, msg) {
 
   const state = getState();
   const senderJid = sender(msg);
-  const senderNum = senderJid.split('@')[0];
+  const senderNum = senderNumber(msg);
   const isCreator = isOwnerOrSudo(msg, state, senderNum);
 
   // Auto-react
@@ -559,8 +628,8 @@ export async function handleCommand(natsu, msg) {
     // youtube, instagram, etc.) so it actually catches what users post.
     const LINK_RE = /(https?:\/\/\S+|www\.\S+|wa\.me\/\S+|t\.me\/\S+|chat\.whatsapp\.com\/\S+|\b[\w-]+\.(com|net|org|io|me|tv|gg|xyz|link|app|dev|co)\b\/?\S*)/i;
     if (isGroup(jid) && state.antilink[jid] && LINK_RE.test(text)) {
-      const { admins } = await getGroupAdmins(natsu, jid);
-      const senderIsAdmin = isGroupAdmin(admins, senderJid);
+      const { admins, meta } = await getGroupAdmins(natsu, jid);
+      const senderIsAdmin = isGroupAdmin(admins, senderJid, meta);
       if (!senderIsAdmin) {
         try { await natsu.sendMessage(jid, { delete: msg.key }); }
         catch (e) {}
@@ -730,6 +799,39 @@ export async function handleCommand(natsu, msg) {
         await reply(`✅ *${cmd}* → ${on ? 'ON' : 'OFF'}`);
         break;
       }
+      case 'admins': case 'groupadmins': {
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
+        const { meta } = await getGroupAdmins(natsu, jid);
+        if (!meta) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ʟɪʀᴇ ʟᴇ ɢʀᴏᴜᴘᴇ.*'); break; }
+        const admins = meta.participants.filter(p => p.admin);
+        const mentions = admins.map(p => p.id);
+        const text = `👑 *ADMINS — ${meta.subject}*\n\n${admins.map((p,i) => `◈ ${i+1}. @${p.id.split('@')[0]} ${p.admin === 'superadmin' ? '👑' : '⭐'}`).join('\n')}`;
+        await natsu.sendMessage(jid, { text, mentions, contextInfo: forwardedContext() }, { quoted: msg });
+        break;
+      }
+      case 'rules': {
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
+        const rules = getState().rules?.[jid] || 'Aucune règle définie. Les admins peuvent utiliser .setrules <règles>.';
+        await reply(`📜 *RÈGLES DU GROUPE*\n\n${rules}`);
+        break;
+      }
+      case 'setrules': {
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        if (!arg) { await reply(`❌ Usage: ${PREFIX}setrules <texte>`); break; }
+        updateState(s => { s.rules ??= {}; s.rules[jid] = arg.slice(0, 5000); });
+        await reply('✅ *Règles du groupe mises à jour.*');
+        break;
+      }
+      case 'poll': {
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
+        const pieces = arg.split('|').map(x => x.trim()).filter(Boolean);
+        if (pieces.length < 3) { await reply(`❌ Usage: ${PREFIX}poll Question | Option 1 | Option 2`); break; }
+        const [question, ...values] = pieces.slice(0, 13);
+        try { await natsu.sendMessage(jid, { poll: { name: question, values, selectableCount: 1 } }, { quoted: msg }); }
+        catch (e) { await reply(`❌ Poll : ${e.message}`); }
+        break;
+      }
       case 'groupinfo': case 'ginfo': {
         if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
         const meta = await natsu.groupMetadata(jid);
@@ -775,22 +877,59 @@ export async function handleCommand(natsu, msg) {
       case 'promote': case 'demote': case 'kick': case 'add': {
         const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
         if (!info) break;
-        const { admins } = info;
-        const mention = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-        const numArg  = arg.replace(/\D/g, '');
-        const target  = mention || (numArg ? `${numArg}@s.whatsapp.net` : null);
-        if (!target) { await reply(`*❌ ᴜsᴀɢᴇ: ${PREFIX}${cmd} @ᴜsᴇʀ ᴏʀ ɴᴜᴍʙᴇʀ*`); break; }
-        const action = cmd === 'kick' ? 'remove' : cmd; // promote|demote|add|remove
+        const { meta } = info;
+        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const mention = mentioned[0];
+        const numArg = normalizeNumber(arg);
+        let target = mention || (numArg ? `${numArg}@s.whatsapp.net` : null);
+        if (!target) { await reply(`*❌ ᴜsᴀɢᴇ: ${PREFIX}${cmd} @ᴜsᴇʀ ᴏᴜ ${PREFIX}${cmd} 243xxxxxxxxx*`); break; }
+
+        // Resolve LID/phone to the exact participant JID whenever possible.
+        const found = findParticipant(meta, target);
+        if (found?.id) target = found.id;
+
+        const stateNow = getState();
+        const senderRole = participantRole(meta, senderJid);
+        const targetInfo = isProtectedTarget(meta, target, stateNow);
+        const targetRole = targetInfo.role;
+
+        if (cmd !== 'add' && !found) {
+          await reply('*❌ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ɴᴏɴ ᴛʀᴏᴜᴠᴇ́ ᴅᴀɴs ʟᴇ ɢʀᴏᴜᴘᴇ.*');
+          break;
+        }
+        if (cmd === 'add') {
+          try {
+            await natsu.groupParticipantsUpdate(jid, [target], 'add');
+            invalidateGroupCache(jid);
+            await reply(`✅ *ADD* → @${target.split('@')[0]}`);
+          } catch (e) { await reply(`❌ *add* échoué : ${e?.message || e}`); }
+          break;
+        }
+
+        // Hierarchy: a normal admin may manage members, but cannot modify
+        // another admin, the group owner, the bot, or the bot owner/sudo.
+        if (pIsBot(target, meta, info.botIds)) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ᴍᴏᴅɪғɪᴇʀ ʟᴇ ʙᴏᴛ.*'); break; }
+        if (targetInfo.protected) { await reply('*❌ ᴄᴇᴛ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴇsᴛ ᴘʀᴏᴛᴇ́ɢᴇ́.*'); break; }
+        if (!isCreator && senderRole !== 'owner' && roleRank(targetRole) >= roleRank(senderRole)) {
+          await reply('*❌ ʜɪᴇ́ʀᴀʀᴄʜɪᴇ ɪɴsᴜғғɪsᴀɴᴛᴇ : ᴛᴜ ɴᴇ ᴘᴇᴜx ᴘᴀs ᴍᴏᴅɪғɪᴇʀ ᴜɴ ᴀᴅᴍɪɴ.*');
+          break;
+        }
+        if (cmd === 'promote' && targetRole !== 'member') { await reply('*ℹ️ ᴄᴇᴛ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴇsᴛ ᴅᴇ́ᴊᴀ̀ ᴀᴅᴍɪɴ.*'); break; }
+        if (cmd === 'demote' && targetRole === 'member') { await reply("*ℹ️ ᴄᴇᴛ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ɴ'ᴇsᴛ ᴘᴀs ᴀᴅᴍɪɴ.*"); break; }
+
+        const action = cmd === 'kick' ? 'remove' : cmd;
         try {
           await natsu.groupParticipantsUpdate(jid, [target], action);
-          await reply(`✅ ${cmd} → @${target.split('@')[0]}`);
-        } catch (e) { await reply(`❌ Failed: ${e.message}`); }
+          invalidateGroupCache(jid);
+          await new Promise(r => setTimeout(r, 500));
+          await natsu.sendMessage(jid, { text: `✅ *${cmd.toUpperCase()}* → @${target.split('@')[0]}`, mentions: [target], contextInfo: forwardedContext() }, { quoted: msg });
+        } catch (e) { await reply(`❌ *${cmd}* échoué : ${e?.message || e}`); }
         break;
       }
-      case 'mute': case 'unmute': case 'closegc': case 'opengc': {
+      case 'mute': case 'unmute': case 'closegc': case 'opengc': case 'lock': case 'unlock': {
         const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
         if (!info) break;
-        const setting = (cmd === 'mute' || cmd === 'closegc') ? 'announcement' : 'not_announcement';
+        const setting = (['mute','closegc','lock'].includes(cmd)) ? 'announcement' : 'not_announcement';
         try { await natsu.groupSettingUpdate(jid, setting); await reply(`*✅ ɢʀᴏᴜᴘ ${cmd}*`); }
         catch (e) { await reply(`❌ ${e.message}`); }
         break;
@@ -817,14 +956,15 @@ export async function handleCommand(natsu, msg) {
         break;
       }
       case 'kickadmins': case 'kickall': {
-        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        const info = await requireGroupOwnerOrCreator(natsu, jid, msg, senderJid, reply);
         if (!info) break;
-        const { meta, admins, botJid } = info;
+        const { meta, botIds } = info;
         const targets = (cmd === 'kickall')
-          ? meta.participants.map(p => p.id).filter(j => !admins.includes(j) && j !== botJid)
-          : admins.filter(j => j !== botJid);
-        for (const t of targets) { try { await natsu.groupParticipantsUpdate(jid, [t], 'remove'); } catch {} await new Promise(r => setTimeout(r, 800)); }
-        await reply(`*✅ ʀᴇᴍᴏᴠᴇᴅ ${targets.length} ᴍᴇᴍʙᴇʀ(s).*`);
+          ? meta.participants.filter(p => !pIsBot(p.id, meta, botIds) && p.admin !== 'superadmin').map(p => p.id)
+          : meta.participants.filter(p => p.admin === 'admin' && !pIsBot(p.id, meta, botIds)).map(p => p.id);
+        for (const t of targets) { try { await natsu.groupParticipantsUpdate(jid, [t], 'remove'); } catch {} await new Promise(r => setTimeout(r, 700)); }
+        invalidateGroupCache(jid);
+        await reply(`*✅ ʀᴇᴍᴏᴠᴇᴅ ${targets.length} ᴍᴇᴍʙʀᴇ(s).*`);
         break;
       }
       case 'listadmins': {
@@ -1042,10 +1182,12 @@ export async function handleCommand(natsu, msg) {
         await reply(`🔥 *DARE*\n\n${RAND(arr)}`); break;
       }
       case 'joke': {
-        try { const r = await axios.get('https://official-joke-api.appspot.com/random_joke', { timeout: 6000 });
-          await reply(`😂 *Joke*\n\n${r.data.setup}\n— ${r.data.punchline}`); }
-        catch { await reply(`😂 ${RAND(['Why did the dev quit? No arrays.','I told a UDP joke, you might not get it.'])}`); }
-        break;
+        const jokes = [
+          ['Pourquoi le développeur aime les pauses ?', 'Parce que son code avait besoin de respirer.'],
+          ['Pourquoi le serveur est calme ?', 'Parce qu’il garde toujours son cache.'],
+          ['Pourquoi JavaScript ne dort jamais ?', 'Parce qu’il attend toujours une promesse.']
+        ];
+        const j = RAND(jokes); await reply(`😂 *Joke*\n\n${j[0]}\n— ${j[1]}`); break;
       }
       case 'meme': {
         try { const r = await axios.get('https://meme-api.com/gimme', { timeout: 5000 });
@@ -1089,10 +1231,12 @@ export async function handleCommand(natsu, msg) {
         break;
       }
       case 'moviequote': {
-        try { const r = await axios.get('https://api.quotable.io/random?tags=famous-quotes', { timeout: 5000 });
-          await reply(`🎬 *MOVIE QUOTE*\n\n"${r.data.content}"\n— ${r.data.author}`); }
-        catch { await reply('🎬 "May the Force be with you." — Star Wars'); }
-        break;
+        const q = RAND([
+          ['Le Seigneur des anneaux','Même les plus petites personnes peuvent changer le cours de l’avenir.'],
+          ['Star Wars','Que la Force soit avec toi.'],
+          ['Harry Potter','Ce sont nos choix qui montrent ce que nous sommes vraiment.']
+        ]);
+        await reply(`🎬 *MOVIE QUOTE*\n\n“${q[1]}”\n— ${q[0]}`); break;
       }
       case 'triviafact': case 'funfact': case 'fact': {
         try { const r = await axios.get('https://uselessfacts.jsph.pl/api/v2/facts/random?language=en', { timeout: 5000 });
@@ -1101,23 +1245,25 @@ export async function handleCommand(natsu, msg) {
         break;
       }
       case 'inspire': {
-        try { const r = await axios.get('https://api.quotable.io/random?tags=inspirational', { timeout: 5000 });
-          await reply(`✨ *INSPIRE*\n\n"${r.data.content}"\n— ${r.data.author}`); }
-        catch { await reply('✨ "The best way out is always through." — Robert Frost'); }
-        break;
+        const q = RAND([
+          ['Chaque petite étape compte.','KILLUA MD'],
+          ['La constance transforme les idées en résultats.','KILLUA MD'],
+          ['Commence petit, améliore chaque jour.','KILLUA MD']
+        ]);
+        await reply(`✨ *INSPIRE*\n\n“${q[0]}”\n— ${q[1]}`); break;
       }
       case 'ascii': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}ascii <text>*`); break; }
-        try { const r = await axios.get(`https://artii.herokuapp.com/make?text=${encodeURIComponent(arg)}`, { timeout: 5000 });
-          await reply('```' + r.data + '```'); }
-        catch { await reply('❌ Service down.'); }
-        break;
+        const clean = arg.replace(/[^\x20-\x7E]/g, '').slice(0, 120);
+        await reply('```\n' + clean + '\n```'); break;
       }
       case 'progquote': {
-        try { const r = await axios.get('https://programming-quotesapi.vercel.app/api/random', { timeout: 5000 });
-          const q = r.data; await reply(`💻 *PROG QUOTE*\n\n"${q.quote || q.en}"\n— ${q.author}`); }
-        catch { await reply('💻 "Talk is cheap. Show me the code." — Linus Torvalds'); }
-        break;
+        const q = RAND([
+          ['Le code doit être simple à lire et facile à corriger.','KILLUA MD'],
+          ['Un bon programme explique ses intentions.','KILLUA MD'],
+          ['Teste tôt, corrige vite.','KILLUA MD']
+        ]);
+        await reply(`💻 *PROG QUOTE*\n\n“${q[0]}”\n— ${q[1]}`); break;
       }
       case 'dadjoke': {
         try { const r = await axios.get('https://icanhazdadjoke.com/', { headers: { Accept: 'application/json' }, timeout: 5000 });
@@ -1228,50 +1374,96 @@ export async function handleCommand(natsu, msg) {
       // ═════════════════════════════════════════════════════════════════════
       // TEMP MAIL MENU
       // ═════════════════════════════════════════════════════════════════════
-      case 'newmail': case 'tempmail2': {
+      case 'newmail': case 'tempmail': case 'tempmail2': {
         try {
-          const r = await axios.get('https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1', { timeout: 6000 });
-          updateState(s => { s.tempmail = r.data[0]; });
-          await reply(`📧 *Temp mail*\n\n\`${r.data[0]}\`\nRead with: *${PREFIX}readmail*`);
-        } catch (e) { await reply(`❌ ${e.message}`); }
+          const login = `killua${Math.random().toString(36).slice(2,10)}`;
+          const password = `${Math.random().toString(36).slice(2)}K9!`;
+          const domains = await axios.get('https://api.mail.tm/domains?page=1', { timeout: 10000 });
+          const domain = domains.data?.['hydra:member']?.find(d => d.isActive)?.domain;
+          if (!domain) throw new Error('aucun domaine disponible');
+          const email = `${login}@${domain}`;
+          const acc = await axios.post('https://api.mail.tm/accounts', { address: email, password }, { timeout: 10000 });
+          const token = (await axios.post('https://api.mail.tm/token', { address: email, password }, { timeout: 10000 })).data?.token;
+          if (!token) throw new Error('token indisponible');
+          updateState(s => { s.tempmailByChat ??= {}; s.tempmailByChat[jid] = { email, provider: 'mail.tm', token, accountId: acc.data?.id, password }; s.tempmail = email; });
+          await reply(`╭━━〔 📧 *TEMPMAIL* 〕━━╮\n│ ✉️ ${email}\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n◈ ${PREFIX}readmail\n◈ ${PREFIX}deltmp`);
+        } catch (e) { await reply(`❌ TempMail indisponible.\n_${e.message}_`); }
         break;
       }
-      case 'readmail': case 'tempmail-inbox': {
-        const s = getState(); if (!s.tempmail) { await reply(`❌ 𝗚𝗲𝗻𝗲𝗿𝗮𝘁𝗲 𝗼𝗻𝗲: *${PREFIX}newmail*`); break; }
-        const [login, domain] = s.tempmail.split('@');
+      case 'readmail': case 'inbox': case 'tempmail-inbox': {
+        const account = getState().tempmailByChat?.[jid];
+        const email = account?.email || getState().tempmail;
+        if (!email) { await reply(`❌ Génère d'abord une adresse avec *${PREFIX}newmail*.`); break; }
         try {
-          const r = await axios.get(`https://www.1secmail.com/api/v1/?action=getMessages&login=${login}&domain=${domain}`, { timeout: 6000 });
-          if (!r.data.length) { await reply(`📭 Inbox empty for \`${s.tempmail}\``); break; }
-          let out = `📬 *𝗜𝗻𝗯𝗼𝘅 — ${s.tempmail}*\n\n`;
-          for (const m of r.data.slice(0, 5)) {
-            const det = await axios.get(`https://www.1secmail.com/api/v1/?action=readMessage&login=${login}&domain=${domain}&id=${m.id}`, { timeout: 6000 });
-            out += `📨 *${det.data.subject}*\nFrom: ${det.data.from}\n${(det.data.textBody||det.data.body||'').slice(0,300)}\n\n`;
+          if (account?.provider === 'mail.tm' && account.token) {
+            const r = await axios.get('https://api.mail.tm/messages', { headers: { Authorization: `Bearer ${account.token}` }, timeout: 10000 });
+            const messages = r.data?.['hydra:member'] || [];
+            if (!messages.length) { await reply(`📭 Inbox vide pour *${email}*`); break; }
+            let out = `📬 *INBOX — ${email}*\n\n`;
+            for (const m of messages.slice(0,5)) out += `📨 *${m.subject || '(sans sujet)'}*\n👤 ${m.from?.address || 'unknown'}\n🆔 ${m.id}\n\n`;
+            await reply(out);
+          } else {
+            await reply(`❌ Cette adresse n'utilise plus un fournisseur compatible. Crée une nouvelle adresse avec *${PREFIX}newmail*.`);
           }
-          await reply(out);
-        } catch (e) { await reply(`❌ ${e.message}`); }
+        } catch (e) { await reply(`❌ Impossible de lire l'inbox : ${e.message}`); }
         break;
       }
-      case 'deltmp': { updateState(s => { delete s.tempmail; }); await reply('🗑️ 𝗧𝗲𝗺𝗽 𝗺𝗮𝗶𝗹 𝗱𝗲𝗹𝗲𝘁𝗲𝗱.'); break; }
+      case 'deltmp': case 'delmail': {
+        const account = getState().tempmailByChat?.[jid];
+        try { if (account?.provider === 'mail.tm' && account.accountId && account.token) await axios.delete(`https://api.mail.tm/accounts/${account.accountId}`, { headers: { Authorization: `Bearer ${account.token}` }, timeout: 10000 }); } catch {}
+        updateState(s => { if (s.tempmailByChat) delete s.tempmailByChat[jid]; if (s.tempmail && !s.tempmailByChat?.[jid]) delete s.tempmail; });
+        await reply('🗑️ *TempMail supprimé pour cette conversation.*');
+        break;
+      }
 
       // ═════════════════════════════════════════════════════════════════════
       // OTHER MENU
       // ═════════════════════════════════════════════════════════════════════
+      case 'mediastatus': {
+        const checks = [];
+        try { await execFileAsync('ffmpeg', ['-version'], { timeout: 5000 }); checks.push('🟢 ffmpeg'); } catch { checks.push('🔴 ffmpeg'); }
+        try { await execFileAsync('yt-dlp', ['--version'], { timeout: 5000 }); checks.push('🟢 yt-dlp'); } catch { checks.push('🟡 yt-dlp absent — les APIs de secours seront utilisées'); }
+        await reply(`🎬 *MEDIA STATUS*\n\n${checks.join('\n')}`); break;
+      }
+      case 'apistatus': {
+        const checks = [
+          ['Mail.tm', 'https://api.mail.tm/domains'],
+          ['Open-Meteo', 'https://geocoding-api.open-meteo.com/v1/search?name=Kinshasa&count=1'],
+          ['Frankfurter', 'https://api.frankfurter.dev/v2/rate/USD/EUR'],
+          ['LRCLIB', 'https://lrclib.net/api/search?q=hello'],
+          ['Jikan', 'https://api.jikan.moe/v4/anime?q=naruto&limit=1'],
+          ['Waifu.pics', 'https://api.waifu.pics/sfw/waifu'],
+        ];
+        const out = [];
+        for (const [name, url] of checks) {
+          const t = Date.now();
+          try { const r = await axios.get(url, { timeout: 5000 }); out.push(`🟢 ${name} — ${r.status} (${Date.now()-t}ms)`); }
+          catch { out.push(`🔴 ${name} — OFFLINE/ERROR`); }
+        }
+        await reply(`🩺 *API STATUS*\n\n${out.join('\n')}`);
+        break;
+      }
       case 'weatherwiki': case 'weather': {
-        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝘄𝗲𝗮𝘁𝗵𝗲𝗿 <city>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}weather <city>*`); break; }
         try {
-          const r = await axios.get(`https://wttr.in/${encodeURIComponent(arg)}?format=j1`, { timeout: 5000 });
-          const c = r.data.current_condition[0], a = r.data.nearest_area[0];
-          await reply(`🌍 *${a.areaName[0].value}, ${a.country[0].value}*\n☀️ ${c.temp_C}°C — ${c.weatherDesc[0].value}\n💧 ${c.humidity}% • 💨 ${c.windspeedKmph} km/h`);
-        } catch { await reply('❌ 𝗪𝗲𝗮𝘁𝗵𝗲𝗿 𝗲𝗿𝗿𝗼𝗿.'); }
+          const geo = await axios.get('https://geocoding-api.open-meteo.com/v1/search', { params: { name: arg, count: 1, language: 'fr', format: 'json' }, timeout: 7000 });
+          const g = geo.data?.results?.[0];
+          if (!g) throw new Error('ville introuvable');
+          const r = await axios.get('https://api.open-meteo.com/v1/forecast', { params: { latitude: g.latitude, longitude: g.longitude, current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m', timezone: 'auto' }, timeout: 7000 });
+          const c = r.data?.current;
+          if (!c) throw new Error('météo indisponible');
+          const labels = {0:'☀️ Ciel dégagé',1:'🌤️ Principalement dégagé',2:'⛅ Partiellement nuageux',3:'☁️ Couvert',45:'🌫️ Brouillard',48:'🌫️ Brouillard givrant',51:'🌦️ Bruine légère',53:'🌦️ Bruine',55:'🌧️ Bruine forte',61:'🌦️ Pluie légère',63:'🌧️ Pluie',65:'🌧️ Forte pluie',71:'🌨️ Neige légère',73:'🌨️ Neige',75:'❄️ Forte neige',80:'🌦️ Averses',81:'🌧️ Averses',82:'⛈️ Fortes averses',95:'⛈️ Orage',96:'⛈️ Orage + grêle',99:'⛈️ Orage + forte grêle'};
+          await reply(`🌍 *${g.name}, ${g.country}*\n${labels[c.weather_code] || '🌡️ Conditions actuelles'}\n🌡️ ${c.temperature_2m}°C (ressenti ${c.apparent_temperature}°C)\n💧 ${c.relative_humidity_2m}% • 💨 ${c.wind_speed_10m} km/h`);
+        } catch (e) { await reply(`❌ 𝗪𝗲𝗮𝘁𝗵𝗲𝗿 : ${e.message}`); }
         break;
       }
       case 'currency': {
         const p = arg.split(/\s+/); if (p.length < 3) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗰𝘂𝗿𝗿𝗲𝗻𝗰𝘆 100 𝗨𝗦𝗗 𝗘𝗨𝗥*`); break; }
         const [amt, from, to] = p;
-        try { const r = await axios.get(`https://api.exchangerate-api.com/v4/latest/${from.toUpperCase()}`, { timeout: 5000 });
-          const v = (parseFloat(amt) * r.data.rates[to.toUpperCase()]).toFixed(2);
-          await reply(`💱 ${amt} ${from.toUpperCase()} = *${v} ${to.toUpperCase()}*`); }
-        catch { await reply('❌ 𝗥𝗮𝘁𝗲 𝘂𝗻𝗮𝘃𝗮𝗶𝗹𝗮𝗯𝗹𝗲.'); }
+        try { const r = await axios.get(`https://api.frankfurter.dev/v2/rate/${from.toUpperCase()}/${to.toUpperCase()}`, { timeout: 7000 });
+          const v = (parseFloat(amt) * Number(r.data.rate)).toFixed(2);
+          await reply(`💱 ${amt} ${from.toUpperCase()} = *${v} ${to.toUpperCase()}*\n📅 ${r.data.date}`); }
+        catch (e) { await reply(`❌ 𝗥𝗮𝘁𝗲 𝘂𝗻𝗮𝘃𝗮𝗶𝗹𝗮𝗯𝗹𝗲 : ${e.message}`); }
         break;
       }
       case 'time': {
@@ -1396,8 +1588,7 @@ export async function handleCommand(natsu, msg) {
       }
       case 'horoscope': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}horoscope <sign>*`); break; }
-        const d = await tryFetch([`https://aztro.sameerkumar.website/?sign=${arg.toLowerCase()}&day=today`,
-          `https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign=${arg.toLowerCase()}&day=TODAY`]);
+        const d = await tryFetch([`https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign=${arg.toLowerCase()}&day=TODAY`]);
         if (!d) { await reply('❌ Error.'); break; }
         await reply(`🔮 *${arg.toUpperCase()} — TODAY*\n\n${d.description || d.data?.horoscope_data || JSON.stringify(d).slice(0,500)}`);
         break;
@@ -1418,9 +1609,10 @@ export async function handleCommand(natsu, msg) {
       case 'sfw': case 'moe': case 'aipic': {
         const url = await fetchAnyImage([
           'https://api.waifu.pics/sfw/waifu',
-          'https://nekos.best/api/v2/neko',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/neko'
         ]);
-        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Error.');
+        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Image indisponible, réessaie.');
         break;
       }
       case 'hentai': case 'loli': {
@@ -1432,12 +1624,26 @@ export async function handleCommand(natsu, msg) {
       case 'random-girl': case 'hijab-girl': case 'indonesia-girl':
       case 'japan-girl': case 'korean-girl': case 'malaysia-girl':
       case 'profile-pictures': case 'tiktokgirl': {
+        const prompts = {
+          chinagirl:'portrait of an adult Chinese woman, elegant, safe for work',
+          bluearchive:'anime character, blue themed, safe for work',
+          boypic:'anime boy portrait, profile picture, safe for work',
+          carimage:'cinematic sports car, high quality photography',
+          'random-girl':'portrait of an adult woman, aesthetic profile picture, safe for work',
+          'hijab-girl':'portrait of an adult woman wearing a hijab, elegant, safe for work',
+          'indonesia-girl':'portrait of an adult Indonesian woman, elegant, safe for work',
+          'japan-girl':'portrait of an adult Japanese woman, elegant, safe for work',
+          'korean-girl':'portrait of an adult Korean woman, elegant, safe for work',
+          'malaysia-girl':'portrait of an adult Malaysian woman, elegant, safe for work',
+          'profile-pictures':'cool aesthetic profile picture, digital art',
+          tiktokgirl:'portrait of an adult woman, modern social profile picture, safe for work'
+        };
         const url = await fetchAnyImage([
-          `https://api.giftedtech.web.id/api/sfw/${cmd.replace('-','')}?apikey=gifted`,
-          `https://api.giftedtech.web.id/api/anime/${cmd.replace('-','')}?apikey=gifted`,
           'https://api.waifu.pics/sfw/waifu',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/neko'
         ]);
-        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Try again later.');
+        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Image indisponible, réessaie.');
         break;
       }
 
@@ -1458,9 +1664,13 @@ export async function handleCommand(natsu, msg) {
         await img(c.images?.jpg?.image_url, `🎌 *${c.name}*\n${c.about?.slice(0,800) || ''}`); break;
       }
       case 'aquote': {
-        const d = await tryFetch(['https://animechan.io/api/v1/quotes/random']);
-        const q = d?.data; if (!q) { await reply(`💬 "I'll become the Pirate King!" — Luffy`); break; }
-        await reply(`💬 *${q.character?.name}* (${q.anime?.name})\n\n"${q.content}"`); break;
+        const q = RAND([
+          ['Naruto Uzumaki','La persévérance compte plus que le talent quand on continue d’avancer.'],
+          ['Edward Elric','Même une petite avancée reste une avancée.'],
+          ['Monkey D. Luffy','Je n’abandonne pas ce que j’ai décidé de faire.'],
+          ['Tanjiro Kamado','La gentillesse et la détermination peuvent aller ensemble.']
+        ]);
+        await reply(`💬 *${q[0]}*\n\n“${q[1]}”`); break;
       }
       case 'arecommend': {
         const d = await tryFetch(['https://api.jikan.moe/v4/recommendations/anime']);
@@ -1475,8 +1685,12 @@ export async function handleCommand(natsu, msg) {
         break;
       }
       case 'maid': case 'megumin': case 'neko': case 'shinobu': case 'waifu': {
-        const url = await fetchAnyImage([`https://api.waifu.pics/sfw/${cmd}`, `https://nekos.best/api/v2/${cmd}`]);
-        if (url) await img(url, `🌸 *${cmd.toUpperCase()}*`); else await reply('❌ Try again.');
+        const url = await fetchAnyImage([
+          `https://api.waifu.pics/sfw/${cmd}`,
+          `https://nekos.best/api/v2/${cmd}`,
+          `https://image.pollinations.ai/prompt/${encodeURIComponent(`safe for work ${cmd} anime character`)}?width=768&height=768&nologo=true`
+        ]);
+        if (url) await img(url, `🌸 *${cmd.toUpperCase()}*`); else await reply('❌ Anime indisponible, réessaie.');
         break;
       }
 
@@ -1523,39 +1737,64 @@ export async function handleCommand(natsu, msg) {
         return null;
       }
 
-      async function youtubeMp3(url) {
-        // Current documented public converter. Returns a temporary direct URL.
+      async function youtubeMp3Local(url) {
         try {
-          const body = new URLSearchParams({ youtube_url: url, quality: '192' });
-          const r = await axios.post('https://ytmp3.ge/api/convert', body.toString(), {
-            timeout: 30000,
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
-          });
-          if (r.data?.success && r.data?.downloadUrl) return r.data;
-        } catch {}
-
-        // GiftedTech fallback used by older Killua releases.
-        for (const host of ['api.giftedtech.my.id', 'api.giftedtech.web.id']) {
-          try {
-            const r = await axios.get(`https://${host}/api/download/dlmp3`, {
-              params: { apikey: 'gifted', url }, timeout: 20000,
-              headers: { 'User-Agent': 'Mozilla/5.0' },
-            });
-            const d = r.data?.result || r.data;
-            const downloadUrl = d?.download_url || d?.dl_url || d?.url || d?.audio;
-            if (downloadUrl) return { downloadUrl, title: d?.title || d?.name || '' };
-          } catch {}
-        }
-        return null;
+          const { stdout } = await execFileAsync('yt-dlp', ['--no-playlist','--no-warnings','-x','--audio-format','mp3','--audio-quality','128K','-o','-','--',url], { maxBuffer: 40 * 1024 * 1024, timeout: 90000 });
+          const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'binary');
+          if (buf.length < 4096) throw new Error('audio local vide');
+          return { buffer: buf, title: 'audio' };
+        } catch { return null; }
       }
+
+      async function youtubeMp3(url) {
+        const candidates = [
+          async () => {
+            const body = new URLSearchParams({ youtube_url: url, quality: '192' });
+            const r = await axios.post('https://ytmp3.ge/api/convert', body.toString(), {
+              timeout: 30000,
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
+            });
+            if (r.data?.success && r.data?.downloadUrl) return r.data;
+            throw new Error('converter returned no URL');
+          },
+          async () => {
+            for (const host of ['api.giftedtech.my.id', 'api.giftedtech.web.id']) {
+              try {
+                const r = await axios.get(`https://${host}/api/download/dlmp3`, {
+                  params: { apikey: 'gifted', url }, timeout: 20000,
+                  headers: { 'User-Agent': 'Mozilla/5.0' },
+                });
+                const d = r.data?.result || r.data;
+                const downloadUrl = d?.download_url || d?.dl_url || d?.url || d?.audio;
+                if (downloadUrl) return { downloadUrl, title: d?.title || d?.name || '' };
+              } catch {}
+            }
+            throw new Error('all converters failed');
+          }
+        ];
+        try { return await Promise.any(candidates.map(fn => fn())); } catch { return null; }
+      }
+
+      async function downloadMediaBuffer(url, maxBytes = 35 * 1024 * 1024) {
+        const r = await axios.get(url, {
+          responseType: 'arraybuffer', timeout: 60000,
+          maxContentLength: maxBytes, maxBodyLength: maxBytes,
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' },
+        });
+        const buf = Buffer.from(r.data);
+        if (!buf.length) throw new Error('fichier vide');
+        if (buf.length > maxBytes) throw new Error('fichier trop volumineux');
+        return buf;
+      }
+
       case 'apk': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}apk <app name>*`); break; }
         const d = await tryFetch([`https://api.giftedtech.web.id/api/download/apkdl?apikey=gifted&appName=${encodeURIComponent(arg)}`]);
         const r = d?.result; if (!r?.dllink) { await reply('❌ Not found.'); break; }
         await reply(`📲 *${r.name}*\n📦 ${r.size}\n🔗 ${r.dllink}`); break;
       }
-      case 'fb': case 'insta': case 'pint': case 'mp4': case 'video':
-      case 'yta': case 'ytv': case 'ytmp3': case 'yt': case 'play': case 'song': {
+      case 'fb': case 'facebook': case 'insta': case 'instagram': case 'pint': case 'mp4': case 'video':
+      case 'download': case 'yta': case 'ytv': case 'ytmp3': case 'yt': case 'play': case 'song': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}${cmd} <url or query>*`); break; }
         await reply(`⏳ Downloading via *${cmd}*...`);
         const endpoints = {
@@ -1572,22 +1811,31 @@ export async function handleCommand(natsu, msg) {
 
         let r = null;
         let url = null;
-        if (['play', 'song'].includes(cmd)) {
+        const downloadCmd = cmd === 'facebook' ? 'fb' : (cmd === 'instagram' ? 'insta' : (cmd === 'download' ? 'song' : cmd));
+        let localAudio = null;
+        if (['download', 'play', 'song'].includes(cmd)) {
           const ytUrl = await resolveYouTubeUrl(arg);
           if (ytUrl) {
-            const mp3 = await youtubeMp3(ytUrl);
-            r = mp3;
-            url = mp3?.downloadUrl;
+            localAudio = await youtubeMp3Local(ytUrl);
+            if (!localAudio) {
+              const mp3 = await youtubeMp3(ytUrl);
+              r = mp3;
+              url = mp3?.downloadUrl;
+            } else { r = { title: localAudio.title }; }
           }
         } else {
-          const d = await tryFetch(endpoints[cmd] || []);
+          const d = await tryFetch(endpoints[downloadCmd] || []);
           r = d?.result || d;
           url = r?.download_url || r?.dl_url || r?.url || r?.audio || r?.video || r?.[0]?.url;
         }
         if (!url) { await reply(`❌ *${cmd}* indisponible pour le moment.\n\nVérifie le lien/nom puis réessaie dans quelques secondes.`); break; }
-        const isAudio = ['yta','ytmp3','play','song'].includes(cmd);
+        const isAudio = ['download','yta','ytmp3','play','song'].includes(cmd);
         try {
-          if (isAudio) await natsu.sendMessage(jid, { audio: { url }, mimetype: 'audio/mpeg', contextInfo: forwardedContext() }, { quoted: msg });
+          if (isAudio) {
+            // Prefer the real local yt-dlp bytes; otherwise download the converter URL.
+            const audioBuf = localAudio?.buffer || await downloadMediaBuffer(url);
+            await natsu.sendMessage(jid, { audio: audioBuf, mimetype: 'audio/mpeg', ptt: false, fileName: `${(r?.title || 'audio').replace(/[^a-z0-9_-]+/gi,'_').slice(0,60)}.mp3`, contextInfo: forwardedContext() }, { quoted: msg });
+          }
           else await natsu.sendMessage(jid, { video: { url }, caption: `🎬 ${r.title || ''}`, contextInfo: forwardedContext() }, { quoted: msg });
         } catch (e) { await reply(`🔗 ${url}\n(direct send failed: ${e.message})`); }
         break;
@@ -1773,15 +2021,19 @@ END:VCARD`;
         const m = arg.match(/^([a-z]{2})\s+(.+)/i);
         if (!m) { await reply(`❌ Usage: *${PREFIX}translate <lang> <texte>* (ex: fr Hello)`); break; }
         const [, lang, txt] = m;
-        const d = await tryFetch([`https://api.popcat.xyz/translate?to=${lang}&text=${encodeURIComponent(txt)}`]);
-        await reply(d?.translated ? `🌐 (${lang}) ${d.translated}` : '❌ Échec.');
+        const d = await tryFetch([`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(txt)}`]);
+        const translated = Array.isArray(d) ? d[0]?.map(x => x?.[0]).filter(Boolean).join('') : '';
+        await reply(translated ? `🌐 (${lang}) ${translated}` : '❌ Échec.')
         break;
       }
       case 'lyrics': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}lyrics <titre>*`); break; }
-        const d = await tryFetch([`https://api.popcat.xyz/lyrics?song=${encodeURIComponent(arg)}`]);
-        if (!d?.lyrics) { await reply('❌ Pas trouvé.'); break; }
-        await reply(`🎵 *${d.title}* — ${d.artist}\n\n${String(d.lyrics).slice(0, 3500)}`);
+        try {
+          const r = await axios.get('https://lrclib.net/api/search', { params: { q: arg }, headers: { 'User-Agent': 'KILLUA-MD/1.0 (WhatsApp bot)' }, timeout: 9000 });
+          const d = r.data?.find(x => x?.plainLyrics && !x.instrumental) || r.data?.[0];
+          if (!d?.plainLyrics) throw new Error('paroles introuvables');
+          await reply(`🎵 *${d.trackName || arg}* — ${d.artistName || 'Unknown'}\n\n${String(d.plainLyrics).slice(0, 3500)}`);
+        } catch (e) { await reply(`❌ Lyrics : ${e.message}`); }
         break;
       }
       case 'removebg': {
