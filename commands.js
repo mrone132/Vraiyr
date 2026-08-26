@@ -90,7 +90,7 @@ function getState() {
   s.sudo       ??= [];
   s.banned     ??= [];
   s.blocked    ??= [];
-  s.antilink   ??= true;   // groupJid -> true/false
+  s.antilink   ??= {};   // groupJid -> true/false
   // Public by default. Older releases saved 'self', which silently ignored commands.
   // Migrate that old default once so existing deployments become usable.
   if (!s._modeMigrationV2) {
@@ -101,8 +101,8 @@ function getState() {
   s.autoread   ??= false;
   s.autobio    ??= false;
   s.autorecord ??= false;
-  s.autotyping ??= true;
-  s.autoviewsts ??= true;
+  s.autotyping ??= false;
+  s.autoviewsts ??= false;
   s.autoreact  ??= false;
   s.welcome    ??= {};   // groupJid -> true/false
   s.goodbye    ??= {};   // groupJid -> true/false
@@ -766,7 +766,84 @@ export async function handleCommand(natsu, msg) {
       }
     }
   }
+  
+  // ═══════════════════════════════════════════════════════════════════════
+// 🚫 ANTITAG HANDLER
+// ═══════════════════════════════════════════════════════════════════════
 
+if (m.isGroup && s.antitag?.[m.chat] && s.antitag[m.chat] !== 'off') {
+  const mentionedJids = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
+
+  // Nombre minimum de personnes taguées pour considérer ça comme un tag massif
+  if (mentionedJids.length >= 5) {
+    const mode = s.antitag[m.chat]
+
+    // Vérifier si l'auteur est admin
+    const groupMetadata = await sock.groupMetadata(m.chat)
+    const participants = groupMetadata.participants || []
+
+    const sender = participants.find(p => p.id === m.sender)
+    const isAdmin =
+      sender?.admin === 'admin' ||
+      sender?.admin === 'superadmin'
+
+    // Les admins peuvent utiliser les mentions sans être bloqués
+    if (isAdmin) return
+
+    try {
+      // Supprimer le message
+      await sock.sendMessage(m.chat, {
+        delete: m.key
+      })
+
+      if (mode === 'kick') {
+        await reply(
+          `🚫 *ANTITAG*\n\n` +
+          `@${m.sender.split('@')[0]} a utilisé une mention massive.\n` +
+          `👢 Expulsion en cours...`,
+          {
+            mentions: [m.sender]
+          }
+        )
+
+        // Vérifier que le bot est admin
+        const botJid = sock.user?.id?.split(':')[0] + '@s.whatsapp.net'
+        const botParticipant = participants.find(p =>
+          p.id?.includes(botJid?.split('@')[0])
+        )
+
+        const botIsAdmin =
+          botParticipant?.admin === 'admin' ||
+          botParticipant?.admin === 'superadmin'
+
+        if (botIsAdmin) {
+          await sock.groupParticipantsUpdate(
+            m.chat,
+            [m.sender],
+            'remove'
+          )
+        } else {
+          await reply('⚠️ Je dois être administrateur pour expulser l\'utilisateur.')
+        }
+
+      } else {
+        await reply(
+          `🚫 *ANTITAG*\n\n` +
+          `@${m.sender.split('@')[0]}, les mentions massives sont interdites dans ce groupe.`,
+          {
+            mentions: [m.sender]
+          }
+        )
+      }
+
+    } catch (error) {
+      console.error('❌ Erreur Antitag:', error)
+    }
+
+    return
+     }
+   }
+ }
   // ── AFK : si l'auteur est AFK, on l'enlève. Si quelqu'un mentionné est AFK, on prévient.
   try {
     if (state.afks?.[senderJid]) {
@@ -1073,6 +1150,35 @@ return;
         await reply(`🔗 *ANTILINK* : ${st.antilink[jid] ? '🟢 ON' : '🔴 OFF'}\n🤖 *ANTIBOT* : ${st.antibot[jid] ? '🟢 ON' : '🔴 OFF'}\n🚫 *ANTISPAM* : ${st.antispam[jid] ? '🟢 ON' : '🔴 OFF'}`);
         break;
       }
+     case 'antitag': {
+  try {
+    // ───────────────────────────────────────────────────────────────────
+    // Vérifier groupe
+    // ───────────────────────────────────────────────────────────────────
+    if (!m.isGroup) {
+      reply('❌ Cette commande est utilisable uniquement dans les groupes.')
+      break
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Récupérer les informations du groupe
+    // ───────────────────────────────────────────────────────────────────
+    const groupMetadata = await sock.groupMetadata(m.chat)
+    const participants = groupMetadata.participants || []
+
+    // ───────────────────────────────────────────────────────────────────
+    // Vérifier l'expéditeur
+    // ───────────────────────────────────────────────────────────────────
+    const sender = participants.find(p => p.id === m.sender)
+
+    const isAdmin =
+      sender?.admin === 'admin' ||
+      sender?.admin === 'superadmin'
+
+    if (!isAdmin) {
+      reply('❌ Seuls les administrateurs peuvent utiliser cette commande.')
+      break
+    }
       case 'antibot': case 'antispam': {
         const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
         if (!info) break;
