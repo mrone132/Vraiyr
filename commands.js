@@ -771,79 +771,130 @@ export async function handleCommand(natsu, msg) {
 // 🚫 ANTITAG HANDLER
 // ═══════════════════════════════════════════════════════════════════════
 
-if (m.isGroup && s.antitag?.[m.chat] && s.antitag[m.chat] !== 'off') {
-  const mentionedJids = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
+if (isGroup(jid) && state.antitag?.[jid] && state.antitag[jid] !== 'off') {
+  try {
+    const mentionedJids =
+      msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ||
+      msg.message?.conversation?.contextInfo?.mentionedJid ||
+      [];
 
-  // Nombre minimum de personnes taguées pour considérer ça comme un tag massif
-  if (mentionedJids.length >= 5) {
-    const mode = s.antitag[m.chat]
+    // Minimum de personnes mentionnées
+    const ANTITAG_LIMIT = 5;
 
-    // Vérifier si l'auteur est admin
-    const groupMetadata = await sock.groupMetadata(m.chat)
-    const participants = groupMetadata.participants || []
+    if (mentionedJids.length >= ANTITAG_LIMIT) {
 
-    const sender = participants.find(p => p.id === m.sender)
-    const isAdmin =
-      sender?.admin === 'admin' ||
-      sender?.admin === 'superadmin'
+      // Vérifier si l'auteur est administrateur
+      let senderIsAdmin = false;
 
-    // Les admins peuvent utiliser les mentions sans être bloqués
-    if (isAdmin) return
+      try {
+        const info = await getGroupAdmins(natsu, jid);
 
-    try {
-      // Supprimer le message
-      await sock.sendMessage(m.chat, {
-        delete: m.key
-      })
-
-      if (mode === 'kick') {
-        await reply(
-          `🚫 *ANTITAG*\n\n` +
-          `@${m.sender.split('@')[0]} a utilisé une mention massive.\n` +
-          `👢 Expulsion en cours...`,
-          {
-            mentions: [m.sender]
-          }
-        )
-
-        // Vérifier que le bot est admin
-        const botJid = sock.user?.id?.split(':')[0] + '@s.whatsapp.net'
-        const botParticipant = participants.find(p =>
-          p.id?.includes(botJid?.split('@')[0])
-        )
-
-        const botIsAdmin =
-          botParticipant?.admin === 'admin' ||
-          botParticipant?.admin === 'superadmin'
-
-        if (botIsAdmin) {
-          await sock.groupParticipantsUpdate(
-            m.chat,
-            [m.sender],
-            'remove'
-          )
-        } else {
-          await reply('⚠️ Je dois être administrateur pour expulser l\'utilisateur.')
-        }
-
-      } else {
-        await reply(
-          `🚫 *ANTITAG*\n\n` +
-          `@${m.sender.split('@')[0]}, les mentions massives sont interdites dans ce groupe.`,
-          {
-            mentions: [m.sender]
-          }
-        )
+        senderIsAdmin = isGroupAdmin(
+          info.admins,
+          senderJid,
+          info.meta
+        );
+      } catch (err) {
+        console.error('❌ ANTITAG admin check:', err);
       }
 
-    } catch (error) {
-      console.error('❌ Erreur Antitag:', error)
+      // Les administrateurs ne sont pas concernés
+      if (!senderIsAdmin && !isCreator) {
+
+        const mode = state.antitag[jid];
+
+        // Supprimer le message
+        try {
+          await natsu.sendMessage(jid, {
+            delete: msg.key
+          });
+        } catch (err) {
+          console.error('❌ ANTITAG delete:', err);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // MODE KICK
+        // ─────────────────────────────────────────────────────────────
+
+        if (mode === 'kick') {
+
+          await sendText(
+            natsu,
+            jid,
+            `🚫 *ᴀɴᴛɪᴛᴀɢ*\n\n` +
+            `@${senderNum} a utilisé une mention massive.\n` +
+            `👢 Expulsion en cours...`,
+            msg,
+            [senderJid]
+          );
+
+          try {
+            const info = await getGroupAdmins(natsu, jid);
+
+            const botIsAdmin = isGroupAdmin(
+              info.admins,
+              natsu.user?.id,
+              info.meta
+            );
+
+            if (botIsAdmin) {
+
+              await natsu.groupParticipantsUpdate(
+                jid,
+                [senderJid],
+                'remove'
+              );
+
+            } else {
+
+              await sendText(
+                natsu,
+                jid,
+                `⚠️ Je dois être administrateur pour expulser @${senderNum}.`,
+                msg,
+                [senderJid]
+              );
+
+            }
+
+          } catch (err) {
+            console.error('❌ ANTITAG kick:', err);
+
+            await sendText(
+              natsu,
+              jid,
+              `❌ Impossible d'expulser @${senderNum}.`,
+              msg,
+              [senderJid]
+            );
+          }
+
+        } else {
+
+          // ─────────────────────────────────────────────────────────────
+          // MODE ON
+          // ─────────────────────────────────────────────────────────────
+
+          await sendText(
+            natsu,
+            jid,
+            `🚫 *ᴀɴᴛɪᴛᴀɢ*\n\n` +
+            `@${senderNum}, les mentions massives sont interdites dans ce groupe.\n\n` +
+            `👥 Mentions détectées : ${mentionedJids.length}`,
+            msg,
+            [senderJid]
+          );
+        }
+
+        // Ne pas continuer le traitement du message
+        return;
+      }
     }
 
-    return
-     }
-   }
- }
+  } catch (error) {
+    console.error('❌ Erreur ANTITAG:', error);
+  }
+}
   // ── AFK : si l'auteur est AFK, on l'enlève. Si quelqu'un mentionné est AFK, on prévient.
   try {
     if (state.afks?.[senderJid]) {
@@ -1152,33 +1203,197 @@ return;
       }
      case 'antitag': {
   try {
-    // ───────────────────────────────────────────────────────────────────
-    // Vérifier groupe
-    // ───────────────────────────────────────────────────────────────────
-    if (!m.isGroup) {
-      reply('❌ Cette commande est utilisable uniquement dans les groupes.')
-      break
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ANTITAG
+    // ═══════════════════════════════════════════════════════════════════
+
+    if (!isGroup(jid)) {
+      await reply('❌ Cette commande est utilisable uniquement dans les groupes.');
+      break;
     }
 
-    // ───────────────────────────────────────────────────────────────────
-    // Récupérer les informations du groupe
-    // ───────────────────────────────────────────────────────────────────
-    const groupMetadata = await sock.groupMetadata(m.chat)
-    const participants = groupMetadata.participants || []
+    // Vérifier que l'utilisateur est administrateur
+    const info = await requireGroupAdmin(
+      natsu,
+      jid,
+      msg,
+      senderJid,
+      reply
+    );
 
-    // ───────────────────────────────────────────────────────────────────
-    // Vérifier l'expéditeur
-    // ───────────────────────────────────────────────────────────────────
-    const sender = participants.find(p => p.id === m.sender)
+    if (!info) break;
 
-    const isAdmin =
-      sender?.admin === 'admin' ||
-      sender?.admin === 'superadmin'
+    const currentState =
+      getState()?.antitag?.[jid] || 'off';
 
-    if (!isAdmin) {
-      reply('❌ Seuls les administrateurs peuvent utiliser cette commande.')
-      break
+    // ─────────────────────────────────────────────────────────────────
+    // Aucun argument
+    // ─────────────────────────────────────────────────────────────────
+
+    if (!arg) {
+
+      await reply(
+        `╭━━━〔 🚫 ANTITAG 〕━━━╮
+┃
+┃ 📊 État :
+┃ ${currentState === 'off'
+    ? '🔴 OFF'
+    : '🟢 ' + currentState.toUpperCase()}
+┃
+┃ 👥 Seuil : 5 mentions
+┃
+┃ Commandes :
+┃
+┃ • ${PREFIX}antitag on
+┃ • ${PREFIX}antitag off
+┃ • ${PREFIX}antitag kick
+┃ • ${PREFIX}antitag status
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━╯`
+      );
+
+      break;
     }
+
+    const action = arg.trim().toLowerCase();
+
+    // ─────────────────────────────────────────────────────────────────
+    // STATUS
+    // ─────────────────────────────────────────────────────────────────
+
+    if (
+      action === 'status' ||
+      action === 'state' ||
+      action === 'info'
+    ) {
+
+      await reply(
+        `╭━━━〔 🚫 ANTITAG STATUS 〕━━━╮
+┃
+┃ 📊 État :
+┃ ${currentState === 'off'
+    ? '🔴 OFF'
+    : '🟢 ' + currentState.toUpperCase()}
+┃
+┃ 👥 Seuil : 5 mentions
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━╯`
+      );
+
+      break;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // ON
+    // ─────────────────────────────────────────────────────────────────
+
+    if (
+      action === 'on' ||
+      action === 'enable' ||
+      action === '1' ||
+      action === 'true'
+    ) {
+
+      updateState(st => {
+
+        if (!st.antitag) {
+          st.antitag = {};
+        }
+
+        st.antitag[jid] = 'on';
+
+      });
+
+      await reply(
+        `✅ *ANTITAG ACTIVÉ* 🟢\n\n` +
+        `👥 Les mentions massives de 5 personnes ou plus seront bloquées.`
+      );
+
+      break;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // KICK
+    // ─────────────────────────────────────────────────────────────────
+
+    if (
+      action === 'kick' ||
+      action === 'remove'
+    ) {
+
+      updateState(st => {
+
+        if (!st.antitag) {
+          st.antitag = {};
+        }
+
+        st.antitag[jid] = 'kick';
+
+      });
+
+      await reply(
+        `✅ *ANTITAG KICK ACTIVÉ* 🟢\n\n` +
+        `🚫 Les mentions massives seront supprimées.\n` +
+        `👢 Leur auteur sera expulsé.`
+      );
+
+      break;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // OFF
+    // ─────────────────────────────────────────────────────────────────
+
+    if (
+      action === 'off' ||
+      action === 'disable' ||
+      action === '0' ||
+      action === 'false'
+    ) {
+
+      updateState(st => {
+
+        if (!st.antitag) {
+          st.antitag = {};
+        }
+
+        st.antitag[jid] = 'off';
+
+      });
+
+      await reply(
+        `❌ *ANTITAG DÉSACTIVÉ* 🔴`
+      );
+
+      break;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // OPTION INVALIDE
+    // ─────────────────────────────────────────────────────────────────
+
+    await reply(
+      `❌ Option inconnue.\n\n` +
+      `Utilise :\n` +
+      `• ${PREFIX}antitag on\n` +
+      `• ${PREFIX}antitag off\n` +
+      `• ${PREFIX}antitag kick\n` +
+      `• ${PREFIX}antitag status`
+    );
+
+  } catch (error) {
+
+    console.error('❌ Erreur commande ANTITAG:', error);
+
+    await reply(
+      `❌ Une erreur est survenue avec ANTITAG.`
+    );
+
+  }
+
+  break;
+}
       case 'antibot': case 'antispam': {
         const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
         if (!info) break;
