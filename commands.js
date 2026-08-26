@@ -435,8 +435,10 @@ function buildMenu(userName = '') {
 │ ⚡ Prefix : ${activePrefix}
 ╰━━━━━━━━━━━━━━━━━━━━╯
 
+🌹 *« Le GOAT ne parle pas, il laisse ses actions répondre. »*
 ${body}
 ╭━━━〔 *KILLUA MD* 〕━━━╮
+│ ⚡ Fast • Stable • Intelligent
 │ 👑 Powered by ${DEV_NAME}
 ╰━━━━━━━━━━━━━━━━━━━━╯`;
 }
