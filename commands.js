@@ -284,6 +284,77 @@ function quotedMsg(msg) {
   return ctx?.quotedMessage ? { quoted: ctx.quotedMessage, participant: ctx.participant } : null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IMAGE HELPERS — .url / .rmbg
+// ─────────────────────────────────────────────────────────────────────────────
+async function getQuotedImageBuffer(msg) {
+  const q = quotedMsg(msg);
+  const imageMessage = q?.quoted?.imageMessage;
+  if (!imageMessage) return null;
+
+  const { downloadContentFromMessage } = await import('@whiskeysockets/baileys');
+  const stream = await downloadContentFromMessage(imageMessage, 'image');
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
+async function uploadImageUrl(buffer, filename = 'image.jpg') {
+  // ImgBB gives the exact i.ibb.co style direct URL when an API key is set.
+  const imgbbKey = process.env.IMGBB_API_KEY?.trim();
+  if (imgbbKey) {
+    const body = new URLSearchParams({
+      key: imgbbKey,
+      image: buffer.toString('base64'),
+      name: filename.replace(/[^a-zA-Z0-9._-]/g, '_'),
+    });
+    const r = await axios.post('https://api.imgbb.com/1/upload', body.toString(), {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    const url = r.data?.data?.url || r.data?.data?.display_url;
+    if (url) return { url, provider: 'ImgBB' };
+    throw new Error('ImgBB n’a pas retourné de lien.');
+  }
+
+  // No key? Use Catbox as a working fallback so .url still works.
+  const form = new FormData();
+  form.append('reqtype', 'fileupload');
+  form.append('fileToUpload', new Blob([buffer], { type: 'image/jpeg' }), filename);
+  const r = await axios.post('https://catbox.moe/user/api.php', form, {
+    timeout: 45000,
+    headers: { ...Object.fromEntries(form.entries()) },
+    transformRequest: [(data, headers) => data],
+    maxBodyLength: 20 * 1024 * 1024,
+  });
+  const url = String(r.data || '').trim();
+  if (!/^https?:\/\//i.test(url)) throw new Error('Aucun lien direct reçu.');
+  return { url, provider: 'Catbox' };
+}
+
+async function removeImageBackground(buffer) {
+  const key = process.env.REMOVE_BG_API_KEY?.trim();
+  if (!key) {
+    throw new Error('REMOVE_BG_API_KEY manquante. Ajoute ta clé remove.bg dans .env.');
+  }
+
+  const form = new FormData();
+  form.append('image_file', new Blob([buffer], { type: 'image/jpeg' }), 'image.jpg');
+  form.append('size', 'auto');
+
+  const r = await axios.post('https://api.remove.bg/v1.0/removebg', form, {
+    timeout: 60000,
+    headers: {
+      'X-Api-Key': key,
+      ...Object.fromEntries(form.entries()),
+    },
+    responseType: 'arraybuffer',
+    transformRequest: [(data, headers) => data],
+    maxBodyLength: 20 * 1024 * 1024,
+  });
+  return Buffer.from(r.data);
+}
+
 // Generic HTTP fallback over multiple free AI / download endpoints
 // Timeout reduced from 10000ms to 6000ms — fail fast, try next URL sooner
 async function tryFetch(urls) {
@@ -409,7 +480,7 @@ const MENU_GROUPS = {
   },
   '🎨 ᴍᴇᴅɪᴀ': {
     emoji: '🎨',
-    cmds: ['sticker','stiker','telegraph','url','toimg','take','steal','wm','qc','tts','say','bass','blown','deep','earrape','fast','nightcore','reverse','robot','slow','smooth','squirrel']
+    cmds: ['sticker','stiker','telegraph','url','rmbg','toimg','take','steal','wm','qc','tts','say','bass','blown','deep','earrape','fast','nightcore','reverse','robot','slow','smooth','squirrel']
   },
   '😂 ғᴜɴ': {
     emoji: '😂',
@@ -2838,16 +2909,115 @@ pendant la récupération de l'image.
       // CONVERTER
       // ═════════════════════════════════════════════════════════════════════
       case 'telegraph': { await reply('📝 Telegraph upload requires reply to image/text (will be enabled with multipart upload pipeline).'); break; }
-      case 'url': { await reply(`🔗 ${PREFIX}url — short an URL: ${PREFIX}shorturl <url>`); break; }
+      case 'url': {
+        const q = quotedMsg(msg);
+        const imageMessage = q?.quoted?.imageMessage;
+        if (!imageMessage) {
+          await reply(`❌ Réponds à une image avec *${PREFIX}url*.`);
+          break;
+        }
+        try {
+          await reply('⏳ Upload de l’image en cours…');
+          const buffer = await getQuotedImageBuffer(msg);
+          const result = await uploadImageUrl(buffer, `killua-${Date.now()}.jpg`);
+          await reply(
+            `╭━━〔 🖼️ *IMAGE UPLOADED* 〕━━╮\n` +
+            `│ 📦 Size: ${(buffer.length / 1024).toFixed(2)} KB\n` +
+            `│ ☁️ Host: ${result.provider}\n` +
+            `│ 🔗 URL: ${result.url}\n` +
+            `╰━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+            `📋 Copie le lien ci-dessus.`
+          );
+        } catch (e) {
+          await reply(`❌ Upload échoué.\n_${e?.message || e}_`);
+        }
+        break;
+      }
 
       // ═════════════════════════════════════════════════════════════════════
-      // DOWNLOADER
+      // DOWNLOADER V3 — YouTube / Play / Song / Video
       // ═════════════════════════════════════════════════════════════════════
-      // Resolve a search query to a YouTube URL, then convert it to MP3.
-      // Several public search mirrors are tried because free endpoints can
-      // temporarily disappear. Direct YouTube URLs skip the search step.
+      // IMPORTANT:
+      // - .song  = recherche d'une chanson -> AUDIO uniquement
+      // - .play  = recherche YouTube/titre -> AUDIO uniquement
+      // - .yta / .ytmp3 = URL YouTube -> AUDIO uniquement
+      // - .yt / .ytv / .video / .mp4 = URL ou recherche -> VIDEO uniquement
+      // - .download = compatibilité historique -> AUDIO YouTube
+      //
+      // yt-dlp est utilisé en priorité via youtube-dl-exec. Si le module n'est
+      // pas disponible sur l'hébergement, on tente le binaire yt-dlp installé
+      // sur le système, puis les APIs de secours pour les URLs YouTube.
+      // ═════════════════════════════════════════════════════════════════════
+
+      let _youtubeDl = null;
+      let _ffmpegPath = null;
+      let _youtubeDlLoadError = null;
+
+      const YT_MAX_AUDIO = 45 * 1024 * 1024;
+      const YT_MAX_VIDEO = 45 * 1024 * 1024;
+
+      function safeMediaName(name = 'media') {
+        return String(name)
+          .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+          .replace(/\s+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^[_\.]+|[_\.]+$/g, '')
+          .slice(0, 70) || 'media';
+      }
+
+      function isYouTubeUrl(value = '') {
+        return /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i.test(String(value).trim());
+      }
+
+      async function getYouTubeTools() {
+        if (_youtubeDl || _youtubeDlLoadError) {
+          return { youtubeDl: _youtubeDl, ffmpegPath: _ffmpegPath };
+        }
+
+        try {
+          const mod = await import('youtube-dl-exec');
+          _youtubeDl = mod.default || mod;
+        } catch (e) {
+          _youtubeDlLoadError = e;
+          _youtubeDl = null;
+        }
+
+        try {
+          const mod = await import('ffmpeg-static');
+          _ffmpegPath = mod.default || mod;
+        } catch {
+          _ffmpegPath = null;
+        }
+
+        return { youtubeDl: _youtubeDl, ffmpegPath: _ffmpegPath };
+      }
+
       async function resolveYouTubeUrl(query) {
-        if (/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(query)) return query;
+        const q = String(query || '').trim();
+        if (!q) return null;
+        if (isYouTubeUrl(q)) return q;
+
+        // First choice: yt-dlp search. This is more reliable than scraping
+        // YouTube HTML or depending on a single public search mirror.
+        try {
+          const { youtubeDl } = await getYouTubeTools();
+          if (youtubeDl) {
+            const info = await youtubeDl(`ytsearch1:${q}`, {
+              dumpSingleJson: true,
+              noPlaylist: true,
+              skipDownload: true,
+              noWarnings: true,
+              quiet: true,
+            });
+            const entry = info?.entries?.[0] || info;
+            const url = entry?.webpage_url || entry?.original_url || entry?.url;
+            if (url && isYouTubeUrl(url)) return url;
+          }
+        } catch (e) {
+          console.warn('[YT SEARCH V3]', e?.message || e);
+        }
+
+        // Fallback search mirrors.
         const instances = [
           'https://pipedapi.adminforge.de',
           'https://pipedapi.kavin.rocks',
@@ -2856,130 +3026,458 @@ pendant la récupération de l'image.
         for (const base of instances) {
           try {
             const r = await axios.get(`${base}/search`, {
-              params: { q: query, filter: 'videos' }, timeout: 7000,
-              headers: { 'User-Agent': 'Mozilla/5.0' }
+              params: { q, filter: 'videos' },
+              timeout: 7000,
+              headers: { 'User-Agent': 'Mozilla/5.0' },
             });
-            const item = (r.data?.items || []).find(x => x?.url?.includes('/watch?v='));
-            if (item?.url) return item.url.startsWith('http') ? item.url : `https://www.youtube.com${item.url}`;
+            const item = (r.data?.items || []).find(x =>
+              x?.url && (x.url.includes('/watch?v=') || x.url.includes('youtu.be/'))
+            );
+            if (item?.url) {
+              return item.url.startsWith('http')
+                ? item.url
+                : `https://www.youtube.com${item.url}`;
+            }
           } catch {}
         }
-        // Last search fallback: YouTube result HTML. We only extract the first video ID.
+
+        // Last fallback: YouTube result HTML.
         try {
           const r = await axios.get('https://www.youtube.com/results', {
-            params: { search_query: query }, timeout: 9000,
+            params: { search_query: q },
+            timeout: 9000,
             headers: { 'User-Agent': 'Mozilla/5.0' },
-            responseType: 'text', transformResponse: [(d) => d]
+            responseType: 'text',
+            transformResponse: [(d) => d],
           });
           const html = String(r.data || '');
-          const m = html.match(/\"videoId\":\"([A-Za-z0-9_-]{11})\"/);
+          const m = html.match(/"videoId":"([A-Za-z0-9_-]{11})"/);
           if (m?.[1]) return `https://www.youtube.com/watch?v=${m[1]}`;
         } catch {}
+
         return null;
       }
 
-      async function youtubeMp3Local(url) {
+      async function runSystemYtDlp(target, args, options = {}) {
         try {
-          const { stdout } = await execFileAsync('yt-dlp', ['--no-playlist','--no-warnings','-x','--audio-format','mp3','--audio-quality','128K','-o','-','--',url], { maxBuffer: 40 * 1024 * 1024, timeout: 90000 });
-          const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'binary');
-          if (buf.length < 4096) throw new Error('audio local vide');
-          return { buffer: buf, title: 'audio' };
-        } catch { return null; }
+          const result = await execFileAsync('yt-dlp', [
+            '--no-playlist',
+            '--no-warnings',
+            ...args,
+            '--',
+            target,
+          ], {
+            timeout: options.timeout || 120000,
+            maxBuffer: options.maxBuffer || 8 * 1024 * 1024,
+          });
+          return result;
+        } catch {
+          return null;
+        }
       }
 
-      async function youtubeMp3(url) {
-        const candidates = [
-          async () => {
-            const body = new URLSearchParams({ youtube_url: url, quality: '192' });
-            const r = await axios.post('https://ytmp3.ge/api/convert', body.toString(), {
-              timeout: 30000,
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
-            });
-            if (r.data?.success && r.data?.downloadUrl) return r.data;
-            throw new Error('converter returned no URL');
-          },
-          async () => {
-            for (const host of ['api.giftedtech.my.id', 'api.giftedtech.web.id']) {
-              try {
-                const r = await axios.get(`https://${host}/api/download/dlmp3`, {
-                  params: { apikey: 'gifted', url }, timeout: 20000,
-                  headers: { 'User-Agent': 'Mozilla/5.0' },
-                });
-                const d = r.data?.result || r.data;
-                const downloadUrl = d?.download_url || d?.dl_url || d?.url || d?.audio;
-                if (downloadUrl) return { downloadUrl, title: d?.title || d?.name || '' };
-              } catch {}
+      async function downloadYouTubeAudio(queryOrUrl) {
+        const target = isYouTubeUrl(queryOrUrl)
+          ? queryOrUrl
+          : `ytsearch1:${String(queryOrUrl).trim()}`;
+        const tmp = fs.mkdtempSync(path.join(DATA_DIR, 'yt-audio-v3-'));
+
+        try {
+          const { youtubeDl, ffmpegPath } = await getYouTubeTools();
+
+          if (youtubeDl) {
+            const output = path.join(tmp, '%(id)s.%(ext)s');
+            const opts = {
+              noPlaylist: true,
+              noWarnings: true,
+              quiet: true,
+              format: 'bestaudio/best',
+              output,
+              extractAudio: true,
+              audioFormat: 'mp3',
+              audioQuality: '128K',
+              ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
+            };
+
+            const info = await youtubeDl(target, opts);
+            const files = fs.readdirSync(tmp)
+              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
+              .map(x => path.join(tmp, x))
+              .filter(x => fs.statSync(x).isFile());
+            const file = files[0];
+
+            if (file) {
+              const stat = fs.statSync(file);
+              if (stat.size > YT_MAX_AUDIO) {
+                throw new Error('Audio trop volumineux (maximum 45 MB).');
+              }
+              return {
+                buffer: fs.readFileSync(file),
+                title: info?.entries?.[0]?.title || info?.title || 'YouTube Audio',
+              };
             }
-            throw new Error('all converters failed');
           }
-        ];
-        try { return await Promise.any(candidates.map(fn => fn())); } catch { return null; }
+
+          // System fallback if youtube-dl-exec isn't installed.
+          const systemFile = path.join(tmp, '%(id)s.%(ext)s');
+          const system = await runSystemYtDlp(target, [
+            '-f', 'bestaudio/best',
+            '-x',
+            '--audio-format', 'mp3',
+            '--audio-quality', '128K',
+            '-o', systemFile,
+          ], { timeout: 120000 });
+
+          if (system) {
+            const files = fs.readdirSync(tmp)
+              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
+              .map(x => path.join(tmp, x))
+              .filter(x => fs.statSync(x).isFile());
+            const file = files[0];
+            if (file) {
+              const stat = fs.statSync(file);
+              if (stat.size > YT_MAX_AUDIO) throw new Error('Audio trop volumineux (maximum 45 MB).');
+              return {
+                buffer: fs.readFileSync(file),
+                title: path.basename(file).replace(/\.[^.]+$/, '') || 'YouTube Audio',
+              };
+            }
+          }
+
+          throw new Error('yt-dlp n’est pas disponible sur ce serveur.');
+        } finally {
+          try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+        }
       }
 
-      async function downloadMediaBuffer(url, maxBytes = 35 * 1024 * 1024) {
+      async function downloadYouTubeVideo(queryOrUrl) {
+        const target = isYouTubeUrl(queryOrUrl)
+          ? queryOrUrl
+          : `ytsearch1:${String(queryOrUrl).trim()}`;
+        const tmp = fs.mkdtempSync(path.join(DATA_DIR, 'yt-video-v3-'));
+
+        try {
+          const { youtubeDl, ffmpegPath } = await getYouTubeTools();
+
+          if (youtubeDl) {
+            const output = path.join(tmp, '%(id)s.%(ext)s');
+            const opts = {
+              noPlaylist: true,
+              noWarnings: true,
+              quiet: true,
+              format: 'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b[height<=720]',
+              mergeOutputFormat: 'mp4',
+              output,
+              ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
+            };
+
+            const info = await youtubeDl(target, opts);
+            const files = fs.readdirSync(tmp)
+              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
+              .map(x => path.join(tmp, x))
+              .filter(x => fs.statSync(x).isFile());
+            const file = files[0];
+
+            if (file) {
+              const stat = fs.statSync(file);
+              if (stat.size > YT_MAX_VIDEO) throw new Error('Vidéo trop volumineuse (maximum 45 MB).');
+              return {
+                buffer: fs.readFileSync(file),
+                title: info?.entries?.[0]?.title || info?.title || 'YouTube Video',
+              };
+            }
+          }
+
+          // System fallback.
+          const systemFile = path.join(tmp, '%(id)s.%(ext)s');
+          const system = await runSystemYtDlp(target, [
+            '-f', 'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b[height<=720]',
+            '--merge-output-format', 'mp4',
+            '-o', systemFile,
+          ], { timeout: 150000 });
+
+          if (system) {
+            const files = fs.readdirSync(tmp)
+              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
+              .map(x => path.join(tmp, x))
+              .filter(x => fs.statSync(x).isFile());
+            const file = files[0];
+            if (file) {
+              const stat = fs.statSync(file);
+              if (stat.size > YT_MAX_VIDEO) throw new Error('Vidéo trop volumineuse (maximum 45 MB).');
+              return {
+                buffer: fs.readFileSync(file),
+                title: path.basename(file).replace(/\.[^.]+$/, '') || 'YouTube Video',
+              };
+            }
+          }
+
+          throw new Error('yt-dlp n’est pas disponible sur ce serveur.');
+        } finally {
+          try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+        }
+      }
+
+      async function youtubeApiAudio(queryOrUrl) {
+        const ytUrl = await resolveYouTubeUrl(queryOrUrl);
+        if (!ytUrl) throw new Error('Aucun résultat YouTube trouvé.');
+
+        for (const host of ['api.giftedtech.web.id', 'api.giftedtech.my.id']) {
+          try {
+            const r = await axios.get(`https://${host}/api/download/ytmp3`, {
+              params: { apikey: 'gifted', url: ytUrl },
+              timeout: 25000,
+              headers: { 'User-Agent': 'Mozilla/5.0' },
+            });
+            const d = r.data?.result || r.data;
+            const url = d?.download_url || d?.dl_url || d?.url || d?.audio;
+            if (!url) continue;
+            const buffer = await downloadMediaBuffer(url, YT_MAX_AUDIO);
+            return { buffer, title: d?.title || d?.name || 'YouTube Audio' };
+          } catch {}
+        }
+        throw new Error('Aucun service audio YouTube disponible.');
+      }
+
+      async function youtubeApiVideo(queryOrUrl) {
+        const ytUrl = await resolveYouTubeUrl(queryOrUrl);
+        if (!ytUrl) throw new Error('Aucun résultat YouTube trouvé.');
+
+        for (const host of ['api.giftedtech.web.id', 'api.giftedtech.my.id']) {
+          try {
+            const r = await axios.get(`https://${host}/api/download/ytmp4`, {
+              params: { apikey: 'gifted', url: ytUrl },
+              timeout: 30000,
+              headers: { 'User-Agent': 'Mozilla/5.0' },
+            });
+            const d = r.data?.result || r.data;
+            const url = d?.download_url || d?.dl_url || d?.url || d?.video;
+            if (!url) continue;
+            const buffer = await downloadMediaBuffer(url, YT_MAX_VIDEO);
+            return { buffer, title: d?.title || d?.name || 'YouTube Video' };
+          } catch {}
+        }
+        throw new Error('Aucun service vidéo YouTube disponible.');
+      }
+
+      async function sendYouTubeAudio(queryOrUrl) {
+        let media;
+        try {
+          media = await downloadYouTubeAudio(queryOrUrl);
+        } catch (primaryError) {
+          console.warn('[YT AUDIO V3 FALLBACK]', primaryError?.message || primaryError);
+          media = await youtubeApiAudio(queryOrUrl);
+        }
+
+        await natsu.sendMessage(jid, {
+          audio: media.buffer,
+          mimetype: 'audio/mpeg',
+          ptt: false,
+          fileName: `${safeMediaName(media.title)}.mp3`,
+          contextInfo: forwardedContext(),
+        }, { quoted: msg });
+      }
+
+      async function sendYouTubeVideo(queryOrUrl) {
+        let media;
+        try {
+          media = await downloadYouTubeVideo(queryOrUrl);
+        } catch (primaryError) {
+          console.warn('[YT VIDEO V3 FALLBACK]', primaryError?.message || primaryError);
+          media = await youtubeApiVideo(queryOrUrl);
+        }
+
+        await natsu.sendMessage(jid, {
+          video: media.buffer,
+          mimetype: 'video/mp4',
+          fileName: `${safeMediaName(media.title)}.mp4`,
+          caption: `🎬 *${media.title}*`,
+          contextInfo: forwardedContext(),
+        }, { quoted: msg });
+      }
+
+      async function downloadMediaBuffer(url, maxBytes = 45 * 1024 * 1024) {
         const r = await axios.get(url, {
-          responseType: 'arraybuffer', timeout: 60000,
-          maxContentLength: maxBytes, maxBodyLength: maxBytes,
-          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' },
+          responseType: 'arraybuffer',
+          timeout: 90000,
+          maxContentLength: maxBytes,
+          maxBodyLength: maxBytes,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': '*/*',
+          },
         });
         const buf = Buffer.from(r.data);
-        if (!buf.length) throw new Error('fichier vide');
-        if (buf.length > maxBytes) throw new Error('fichier trop volumineux');
+        if (!buf.length) throw new Error('Fichier vide.');
+        if (buf.length > maxBytes) throw new Error('Fichier trop volumineux.');
         return buf;
       }
 
       case 'apk': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}apk <app name>*`); break; }
         const d = await tryFetch([`https://api.giftedtech.web.id/api/download/apkdl?apikey=gifted&appName=${encodeURIComponent(arg)}`]);
-        const r = d?.result; if (!r?.dllink) { await reply('❌ Not found.'); break; }
-        await reply(`📲 *${r.name}*\n📦 ${r.size}\n🔗 ${r.dllink}`); break;
-      }
-      case 'fb': case 'facebook': case 'insta': case 'instagram': case 'pint': case 'mp4': case 'video':
-      case 'download': case 'yta': case 'ytv': case 'ytmp3': case 'yt': case 'play': case 'song': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}${cmd} <url or query>*`); break; }
-        await reply(`⏳ Downloading via *${cmd}*...`);
-        const endpoints = {
-          fb:    [`https://api.giftedtech.web.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          insta: [`https://api.giftedtech.web.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          pint:  [`https://api.giftedtech.web.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          mp4:   [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          video: [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          ytv:   [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          yt:    [`https://api.giftedtech.web.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp4?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          yta:   [`https://api.giftedtech.web.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`],
-          ytmp3: [`https://api.giftedtech.web.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`, `https://api.giftedtech.my.id/api/download/ytmp3?apikey=gifted&url=${encodeURIComponent(arg)}`],
-        };
-
-        let r = null;
-        let url = null;
-        const downloadCmd = cmd === 'facebook' ? 'fb' : (cmd === 'instagram' ? 'insta' : (cmd === 'download' ? 'song' : cmd));
-        let localAudio = null;
-        if (['download', 'play', 'song'].includes(cmd)) {
-          const ytUrl = await resolveYouTubeUrl(arg);
-          if (ytUrl) {
-            localAudio = await youtubeMp3Local(ytUrl);
-            if (!localAudio) {
-              const mp3 = await youtubeMp3(ytUrl);
-              r = mp3;
-              url = mp3?.downloadUrl;
-            } else { r = { title: localAudio.title }; }
-          }
-        } else {
-          const d = await tryFetch(endpoints[downloadCmd] || []);
-          r = d?.result || d;
-          url = r?.download_url || r?.dl_url || r?.url || r?.audio || r?.video || r?.[0]?.url;
-        }
-        if (!url) { await reply(`❌ *${cmd}* indisponible pour le moment.\n\nVérifie le lien/nom puis réessaie dans quelques secondes.`); break; }
-        const isAudio = ['download','yta','ytmp3','play','song'].includes(cmd);
-        try {
-          if (isAudio) {
-            // Prefer the real local yt-dlp bytes; otherwise download the converter URL.
-            const audioBuf = localAudio?.buffer || await downloadMediaBuffer(url);
-            await natsu.sendMessage(jid, { audio: audioBuf, mimetype: 'audio/mpeg', ptt: false, fileName: `${(r?.title || 'audio').replace(/[^a-z0-9_-]+/gi,'_').slice(0,60)}.mp3`, contextInfo: forwardedContext() }, { quoted: msg });
-          }
-          else await natsu.sendMessage(jid, { video: { url }, caption: `🎬 ${r.title || ''}`, contextInfo: forwardedContext() }, { quoted: msg });
-        } catch (e) { await reply(`🔗 ${url}\n(direct send failed: ${e.message})`); }
+        const r = d?.result;
+        if (!r?.dllink) { await reply('❌ Not found.'); break; }
+        await reply(`📲 *${r.name}*\n📦 ${r.size}\n🔗 ${r.dllink}`);
         break;
       }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 🎵 SONG — recherche d'une chanson, AUDIO uniquement
+      // ─────────────────────────────────────────────────────────────────────
+      case 'song': {
+        if (!arg) {
+          await reply(`❌ Usage: *${PREFIX}song <nom de la chanson>*`);
+          break;
+        }
+        try {
+          await reply(`🎵 Recherche de *${arg}*…`);
+          await sendYouTubeAudio(arg);
+        } catch (e) {
+          console.error('[SONG V3]', e?.stack || e);
+          await reply(`❌ *SONG* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+        }
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // ▶️ PLAY — recherche YouTube/titre, AUDIO uniquement
+      // ─────────────────────────────────────────────────────────────────────
+      case 'play': {
+        if (!arg) {
+          await reply(`❌ Usage: *${PREFIX}play <titre ou lien YouTube>*`);
+          break;
+        }
+        try {
+          await reply(`▶️ Recherche de *${arg}*…`);
+          await sendYouTubeAudio(arg);
+        } catch (e) {
+          console.error('[PLAY V3]', e?.stack || e);
+          await reply(`❌ *PLAY* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+        }
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 🎧 YTA / YTMP3 — URL ou recherche YouTube, AUDIO uniquement
+      // ─────────────────────────────────────────────────────────────────────
+      case 'yta':
+      case 'ytmp3': {
+        if (!arg) {
+          await reply(`❌ Usage: *${PREFIX}${cmd} <lien ou recherche YouTube>*`);
+          break;
+        }
+        try {
+          await reply(`🎧 *${cmd.toUpperCase()}* — conversion audio…`);
+          await sendYouTubeAudio(arg);
+        } catch (e) {
+          console.error(`[${cmd.toUpperCase()} V3]`, e?.stack || e);
+          await reply(`❌ *${cmd}* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+        }
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 🎬 YT / YTV / VIDEO / MP4 — VIDEO uniquement
+      // ─────────────────────────────────────────────────────────────────────
+      case 'yt':
+      case 'ytv':
+      case 'video':
+      case 'mp4': {
+        if (!arg) {
+          await reply(`❌ Usage: *${PREFIX}${cmd} <lien ou recherche YouTube>*`);
+          break;
+        }
+        try {
+          await reply(`🎬 *${cmd.toUpperCase()}* — téléchargement vidéo…`);
+          await sendYouTubeVideo(arg);
+        } catch (e) {
+          console.error(`[${cmd.toUpperCase()} V3]`, e?.stack || e);
+          await reply(`❌ *${cmd}* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+        }
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 📥 DOWNLOAD — compatibilité avec l'ancien alias : AUDIO YouTube
+      // ─────────────────────────────────────────────────────────────────────
+      case 'download': {
+        if (!arg) {
+          await reply(`❌ Usage: *${PREFIX}download <titre ou lien YouTube>*`);
+          break;
+        }
+        try {
+          await reply(`📥 Recherche du média *${arg}*…`);
+          await sendYouTubeAudio(arg);
+        } catch (e) {
+          console.error('[DOWNLOAD V3]', e?.stack || e);
+          await reply(`❌ *DOWNLOAD* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+        }
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 🌐 FACEBOOK / INSTAGRAM / PINTEREST
+      // ─────────────────────────────────────────────────────────────────────
+      case 'fb':
+      case 'facebook':
+      case 'insta':
+      case 'instagram':
+      case 'pint': {
+        if (!arg) {
+          await reply(`❌ Usage: *${PREFIX}${cmd} <lien>*`);
+          break;
+        }
+        try {
+          await reply(`⏳ *${cmd.toUpperCase()}* — téléchargement…`);
+          const aliases = {
+            facebook: 'fb',
+            instagram: 'insta',
+          };
+          const key = aliases[cmd] || cmd;
+          const endpoints = {
+            fb: [
+              `https://api.giftedtech.web.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`,
+              `https://api.giftedtech.my.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`,
+            ],
+            insta: [
+              `https://api.giftedtech.web.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`,
+              `https://api.giftedtech.my.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`,
+            ],
+            pint: [
+              `https://api.giftedtech.web.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`,
+              `https://api.giftedtech.my.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`,
+            ],
+          };
+          const d = await tryFetch(endpoints[key] || []);
+          const r = d?.result || d;
+          const url = r?.download_url || r?.dl_url || r?.url || r?.video || r?.image;
+          if (!url || !/^https?:\/\//i.test(url)) throw new Error('Aucun lien de téléchargement valide.');
+
+          const buffer = await downloadMediaBuffer(url);
+          const isImage = key === 'pint' && /\.(?:jpe?g|png|webp)(?:\?|$)/i.test(url);
+          if (isImage) {
+            await natsu.sendMessage(jid, {
+              image: buffer,
+              caption: `📥 *${r?.title || 'Pinterest'}*`,
+              contextInfo: forwardedContext(),
+            }, { quoted: msg });
+          } else {
+            await natsu.sendMessage(jid, {
+              video: buffer,
+              mimetype: 'video/mp4',
+              fileName: `${safeMediaName(r?.title || key)}.mp4`,
+              caption: `📥 *${r?.title || key}*`,
+              contextInfo: forwardedContext(),
+            }, { quoted: msg });
+          }
+        } catch (e) {
+          console.error(`[${cmd.toUpperCase()} V3]`, e?.stack || e);
+          await reply(`❌ *${cmd}* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+        }
+        break;
+      }
+
       case 'git': case 'github-dl': {
         if (!arg) { await reply(`❌ Usage: *${PREFIX}git <user/repo>*`); break; }
         await reply(`📦 ZIP: https://github.com/${arg}/archive/refs/heads/main.zip`); break;
@@ -3177,11 +3675,25 @@ END:VCARD`;
         } catch (e) { await reply(`❌ Lyrics : ${e.message}`); }
         break;
       }
-      case 'removebg': {
+      case 'removebg': case 'rmbg': {
         const q = quotedMsg(msg);
-        if (!q?.quoted?.imageMessage) { await reply('❌ Réponds à une image.'); break; }
-        await reply('⏳ Removing background…');
-        await reply('⚠️ removebg nécessite une clé API (remove.bg). Ajoute REMOVE_BG_KEY puis active le pipeline upload.');
+        if (!q?.quoted?.imageMessage) {
+          await reply(`❌ Réponds à une image avec *${PREFIX}rmbg*.`);
+          break;
+        }
+        try {
+          await reply('⏳ Suppression du fond en cours…');
+          const buffer = await getQuotedImageBuffer(msg);
+          const output = await removeImageBackground(buffer);
+          await natsu.sendMessage(jid, {
+            image: output,
+            mimetype: 'image/png',
+            caption: '✨ *BACKGROUND REMOVED*\n🖼️ Image PNG avec fond transparent.\n© KILLUA MD',
+            contextInfo: forwardedContext(),
+          }, { quoted: msg });
+        } catch (e) {
+          await reply(`❌ rmbg échoué.\n_${e?.message || e}_`);
+        }
         break;
       }
       case 'upscale': {
