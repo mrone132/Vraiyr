@@ -53,7 +53,7 @@ export const WA_CHANNELS = [
 ];
 
 export const WA_GROUPS = [
-  '*https://chat.whatsapp.com/CNEdkcT1U1w5TRP86pFPoB?s=cl&p=a&mlu=4*',
+  'https://chat.whatsapp.com/FJmSNCa6q7oBkFV3hloAtQ?s=cl&p=a&mlu=4',
 ];
 
 // Forwarded-from-channel context (makes messages look forwarded from newsletter)
@@ -90,7 +90,7 @@ function getState() {
   s.sudo       ??= [];
   s.banned     ??= [];
   s.blocked    ??= [];
-  s.antilink   ??= {};   // groupJid -> true/false
+  s.antilink   ??= true;   // groupJid -> true/false
   // Public by default. Older releases saved 'self', which silently ignored commands.
   // Migrate that old default once so existing deployments become usable.
   if (!s._modeMigrationV2) {
@@ -101,13 +101,11 @@ function getState() {
   s.autoread   ??= false;
   s.autobio    ??= false;
   s.autorecord ??= false;
-  s.autotyping ??= false;
-  s.autoviewsts ??= false;
+  s.autotyping ??= true;
+  s.autoviewsts ??= true;
   s.autoreact  ??= false;
   s.welcome    ??= {};   // groupJid -> true/false
   s.goodbye    ??= {};   // groupJid -> true/false
-  s.welcomeConfig ??= {}; // groupJid -> { message, image }
-  s.goodbyeConfig ??= {}; // groupJid -> { message, image }
   s.antibot    ??= {};   // groupJid -> true/false (anti-flood/automation guard)
   s.antispam   ??= {};   // groupJid -> true/false
   s.account    ??= '';
@@ -284,77 +282,6 @@ function quotedMsg(msg) {
   return ctx?.quotedMessage ? { quoted: ctx.quotedMessage, participant: ctx.participant } : null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IMAGE HELPERS — .url / .rmbg
-// ─────────────────────────────────────────────────────────────────────────────
-async function getQuotedImageBuffer(msg) {
-  const q = quotedMsg(msg);
-  const imageMessage = q?.quoted?.imageMessage;
-  if (!imageMessage) return null;
-
-  const { downloadContentFromMessage } = await import('@whiskeysockets/baileys');
-  const stream = await downloadContentFromMessage(imageMessage, 'image');
-  const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  return Buffer.concat(chunks);
-}
-
-async function uploadImageUrl(buffer, filename = 'image.jpg') {
-  // ImgBB gives the exact i.ibb.co style direct URL when an API key is set.
-  const imgbbKey = process.env.IMGBB_API_KEY?.trim();
-  if (imgbbKey) {
-    const body = new URLSearchParams({
-      key: imgbbKey,
-      image: buffer.toString('base64'),
-      name: filename.replace(/[^a-zA-Z0-9._-]/g, '_'),
-    });
-    const r = await axios.post('https://api.imgbb.com/1/upload', body.toString(), {
-      timeout: 30000,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
-    const url = r.data?.data?.url || r.data?.data?.display_url;
-    if (url) return { url, provider: 'ImgBB' };
-    throw new Error('ImgBB n’a pas retourné de lien.');
-  }
-
-  // No key? Use Catbox as a working fallback so .url still works.
-  const form = new FormData();
-  form.append('reqtype', 'fileupload');
-  form.append('fileToUpload', new Blob([buffer], { type: 'image/jpeg' }), filename);
-  const r = await axios.post('https://catbox.moe/user/api.php', form, {
-    timeout: 45000,
-    headers: { ...Object.fromEntries(form.entries()) },
-    transformRequest: [(data, headers) => data],
-    maxBodyLength: 20 * 1024 * 1024,
-  });
-  const url = String(r.data || '').trim();
-  if (!/^https?:\/\//i.test(url)) throw new Error('Aucun lien direct reçu.');
-  return { url, provider: 'Catbox' };
-}
-
-async function removeImageBackground(buffer) {
-  const key = process.env.REMOVE_BG_API_KEY?.trim();
-  if (!key) {
-    throw new Error('REMOVE_BG_API_KEY manquante. Ajoute ta clé remove.bg dans .env.');
-  }
-
-  const form = new FormData();
-  form.append('image_file', new Blob([buffer], { type: 'image/jpeg' }), 'image.jpg');
-  form.append('size', 'auto');
-
-  const r = await axios.post('https://api.remove.bg/v1.0/removebg', form, {
-    timeout: 60000,
-    headers: {
-      'X-Api-Key': key,
-      ...Object.fromEntries(form.entries()),
-    },
-    responseType: 'arraybuffer',
-    transformRequest: [(data, headers) => data],
-    maxBodyLength: 20 * 1024 * 1024,
-  });
-  return Buffer.from(r.data);
-}
-
 // Generic HTTP fallback over multiple free AI / download endpoints
 // Timeout reduced from 10000ms to 6000ms — fail fast, try next URL sooner
 async function tryFetch(urls) {
@@ -480,7 +407,7 @@ const MENU_GROUPS = {
   },
   '🎨 ᴍᴇᴅɪᴀ': {
     emoji: '🎨',
-    cmds: ['sticker','stiker','telegraph','url','rmbg','toimg','take','steal','wm','qc','tts','say','bass','blown','deep','earrape','fast','nightcore','reverse','robot','slow','smooth','squirrel']
+    cmds: ['sticker','stiker','telegraph','url','toimg','take','steal','wm','qc','tts','say','bass','blown','deep','earrape','fast','nightcore','reverse','robot','slow','smooth','squirrel']
   },
   '😂 ғᴜɴ': {
     emoji: '😂',
@@ -517,6 +444,10 @@ const MENU_GROUPS = {
   '📧 ᴛᴇᴍᴘᴍᴀɪʟ': {
     emoji: '📧',
     cmds: ['newmail','tempmail','readmail','inbox','deltmp','delmail','tempmail2','tempmail-inbox']
+  },
+  '💰 ᴘᴀɪᴇᴍᴇɴᴛ': {
+    emoji: '💰',
+    cmds: ['aza','account','setaccount']
   }
 };
 
@@ -554,7 +485,7 @@ function buildMenu(userName = '') {
 
 ${body}
 ╭━━━〔 *KILLUA MD* 〕━━━╮
-│ 🟢 Online • 
+│ 🟢 Online • ⚡ Fast • 🛡️ Protected
 │ 👑 Powered by ${DEV_NAME}
 ╰━━━━━━━━━━━━━━━━━━━━╯`;
 }
@@ -563,153 +494,222 @@ ${body}
 // GROUP WELCOME / GOODBYE (ALWAYS ENABLED — no toggle needed)
 // Triggered automatically on every join/leave detection in any group.
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// 👋 GROUP WELCOME / GOODBYE V2
-// Supports: ON/OFF, custom messages, variables, test, safe error handling.
-// Variables: @user @group @members @bot @prefix
-// ─────────────────────────────────────────────────────────────────────────────
-
-function renderGroupMessage(template, {
-  userJid,
-  groupName,
-  members,
-  botName = BOT_NAME,
-  prefix = PREFIX,
-  goodbye = false,
-} = {}) {
-  const number = String(userJid || '').split('@')[0].replace(/\D/g, '');
-  const safeGroup = groupName || 'ce groupe';
-
-  const fallback = goodbye
-    ? `╭━━━〔 👋 *GOODBYE* 〕━━━╮
-
-┃ 😢 *Au revoir @user*
-┃
-┃ Tu quittes :
-┃ 『 *${safeGroup}* 』
-┃
-┃ 💙 Merci d'avoir fait partie
-┃ de notre communauté.
-┃
-┃ 👥 Membres restants : *${Math.max((members || 1) - 1, 0)}*
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-> ⚡ *${botName}*
-> 👑 Powered by : *${DEV_NAME}*`
-    : `╭━━━〔 👋 *WELCOME* 〕━━━╮
-
-┃ ✨ *Bienvenue @user !*
-┃
-┃ 🎉 Bienvenue dans :
-┃ 『 *${safeGroup}* 』
-┃
-┃ 👥 Membres : *${members || 0}*
-┃
-┃ 🤖 *${botName}* est là pour vous aider.
-┃
-┃ 📚 Tape *${prefix}menu*
-┃ pour découvrir toutes les commandes.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-> ⚡ *${botName}*
-> 👑 Powered by : *${DEV_NAME}*`;
-
-  return String(template || fallback)
-    .replaceAll('@user', `@${number}`)
-    .replaceAll('@group', safeGroup)
-    .replaceAll('@members', String(members || 0))
-    .replaceAll('@bot', botName)
-    .replaceAll('@prefix', prefix);
-}
-
-function getGroupGreetingConfig(state, key, jid) {
-  const config = state?.[`${key}Config`]?.[jid];
-  return config && typeof config === 'object' ? config : {};
-}
-
 export async function handleGroupWelcome(natsu, update = {}) {
-  const { id, participants = [], action } = update;
+  const {
+    id,
+    participants = [],
+    action
+  } = update;
+
+  // ═══════════════════════════════════════════════════════════════
+  // VALIDATION
+  // ═══════════════════════════════════════════════════════════════
 
   if (!id || !String(id).endsWith('@g.us')) return;
-  if (!Array.isArray(participants) || participants.length === 0) return;
+
+  if (!Array.isArray(participants) || participants.length === 0) {
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // NORMALIZE ACTION
+  // ═══════════════════════════════════════════════════════════════
 
   const act = String(action || '').trim().toLowerCase();
-  const isJoin = ['add', 'invite', 'join'].includes(act);
-  const isLeave = ['remove', 'leave', 'kick'].includes(act);
 
+  const isJoin = [
+    'add',
+    'invite',
+    'join'
+  ].includes(act);
+
+  const isLeave = [
+    'remove',
+    'leave',
+    'kick'
+  ].includes(act);
+
+  // Ignore promote / demote / unknown events
   if (!isJoin && !isLeave) return;
 
-  const state = getState() || {};
-  const key = isJoin ? 'welcome' : 'goodbye';
+  // ═══════════════════════════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════════════════════════
 
-  // ON par défaut ; seul false désactive.
-  if (state?.[key]?.[id] === false) return;
+  const state = getState() || {};
+
+  const welcomeState = state.welcome || {};
+  const goodbyeState = state.goodbye || {};
+
+  const enabled = isJoin
+    ? welcomeState[id] !== false
+    : goodbyeState[id] !== false;
+
+  if (!enabled) return;
+
+  // ═══════════════════════════════════════════════════════════════
+  // GROUP INFORMATION
+  // ═══════════════════════════════════════════════════════════════
 
   let metadata = null;
+
   try {
     metadata = await natsu.groupMetadata(id);
   } catch (error) {
     console.error(
-      `[${key.toUpperCase()}] groupMetadata failed:`,
+      '[WELCOME] Impossible de récupérer les métadonnées du groupe:',
       error?.message || error
     );
   }
 
-  const groupName = metadata?.subject || 'ce groupe';
-  const groupSize = metadata?.participants?.length || 0;
-  const config = getGroupGreetingConfig(state, key, id);
-  const imageUrl = config.image || MENU_IMAGE;
+  const groupName =
+    metadata?.subject ||
+    'ce groupe';
+
+  const groupSize =
+    metadata?.participants?.length ||
+    0;
+
+  // ═══════════════════════════════════════════════════════════════
+  // BOT NAME
+  // ═══════════════════════════════════════════════════════════════
+
+  const botName =
+    typeof BOT_NAME !== 'undefined' && BOT_NAME
+      ? BOT_NAME
+      : 'KILLUA MD';
+
+  const devName =
+    typeof DEV_NAME !== 'undefined' && DEV_NAME
+      ? DEV_NAME
+      : 'Developer';
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROCESS PARTICIPANTS
+  // ═══════════════════════════════════════════════════════════════
 
   for (const raw of participants) {
-    const jidP = typeof raw === 'string'
-      ? raw
-      : (raw?.id || raw?.jid || raw?.lid || '');
+
+    const jidP =
+      typeof raw === 'string'
+        ? raw
+        : (raw?.id || raw?.jid || '');
 
     if (!jidP) continue;
 
-    const participantJid = String(jidP).includes('@')
-      ? String(jidP)
-      : `${jidP}@s.whatsapp.net`;
+    // Normalisation du JID
+    const participantJid =
+      String(jidP).includes('@')
+        ? String(jidP)
+        : `${jidP}@s.whatsapp.net`;
 
-    const number = participantJid.split('@')[0].replace(/\D/g, '');
+    const number =
+      participantJid
+        .split('@')[0]
+        .replace(/\D/g, '');
+
     if (!number) continue;
 
-    const caption = renderGroupMessage(config.message, {
-      userJid: participantJid,
-      groupName,
-      members: groupSize,
-      botName: BOT_NAME,
-      prefix: getState().prefix || PREFIX,
-      goodbye: isLeave,
-    });
+    // ═══════════════════════════════════════════════════════════
+    // WELCOME
+    // ═══════════════════════════════════════════════════════════
 
-    try {
-      await natsu.sendMessage(id, {
-        image: { url: imageUrl },
-        caption,
-        mentions: [participantJid],
-        contextInfo: forwardedContext(),
-      });
-    } catch (error) {
-      console.error(
-        `[${key.toUpperCase()}] sendMessage failed in ${id}:`,
-        error?.message || error
-      );
+    if (isJoin) {
 
-      // Fallback texte si l'image distante échoue.
+      const caption =
+`╭━━━〔 👋 *WELCOME* 〕━━━╮
+
+┃ ✨ *Bienvenue @${number} !*
+┃
+┃ 🎉 Bienvenue dans :
+┃ 『 *${groupName}* 』
+┃
+┃ 👥 Membres : *${groupSize}*
+┃
+┃ 🤖 *${botName}* est là pour vous aider.
+┃
+┃ 📚 Tape *${PREFIX}menu*
+┃ pour découvrir toutes les commandes.
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━╯
+
+> ⚡ *${botName}*
+> 👑 Powered by : *${devName}*`;
+
       try {
+
         await natsu.sendMessage(id, {
-          text: caption,
-          mentions: [participantJid],
-          contextInfo: forwardedContext(),
+          image: {
+            url: MENU_IMAGE
+          },
+
+          caption,
+
+          mentions: [
+            participantJid
+          ],
+
+          contextInfo: forwardedContext()
         });
-      } catch (fallbackError) {
+
+      } catch (error) {
+
         console.error(
-          `[${key.toUpperCase()}] text fallback failed:`,
-          fallbackError?.message || fallbackError
+          `[WELCOME] Erreur lors de l'envoi dans ${id}:`,
+          error?.message || error
         );
+
+      }
+
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // GOODBYE
+    // ═══════════════════════════════════════════════════════════
+
+    else if (isLeave) {
+
+      const caption =
+`╭━━━〔 👋 *GOODBYE* 〕━━━╮
+
+┃ 😢 *Au revoir @${number}*
+┃
+┃ Tu quittes :
+┃ 『 *${groupName}* 』
+┃
+┃ 💙 Merci d'avoir fait
+┃ partie de notre communauté.
+┃
+┃ 👥 Membres restants : *${Math.max(groupSize - 1, 0)}*
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━╯
+
+> ⚡ *${botName}*
+> 👑 Powered by : *${devName}*`;
+
+      try {
+
+        await natsu.sendMessage(id, {
+          image: {
+            url: MENU_IMAGE
+          },
+
+          caption,
+
+          mentions: [
+            participantJid
+          ],
+
+          contextInfo: forwardedContext()
+        });
+
+      } catch (error) {
+
+        console.error(
+          `[GOODBYE] Erreur lors de l'envoi dans ${id}:`,
+          error?.message || error
+        );
+
       }
     }
   }
@@ -837,135 +837,7 @@ export async function handleCommand(natsu, msg) {
       }
     }
   }
-  
-  // ═══════════════════════════════════════════════════════════════════════
-// 🚫 ANTITAG HANDLER
-// ═══════════════════════════════════════════════════════════════════════
 
-if (isGroup(jid) && state.antitag?.[jid] && state.antitag[jid] !== 'off') {
-  try {
-    const mentionedJids =
-      msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ||
-      msg.message?.conversation?.contextInfo?.mentionedJid ||
-      [];
-
-    // Minimum de personnes mentionnées
-    const ANTITAG_LIMIT = 5;
-
-    if (mentionedJids.length >= ANTITAG_LIMIT) {
-
-      // Vérifier si l'auteur est administrateur
-      let senderIsAdmin = false;
-
-      try {
-        const info = await getGroupAdmins(natsu, jid);
-
-        senderIsAdmin = isGroupAdmin(
-          info.admins,
-          senderJid,
-          info.meta
-        );
-      } catch (err) {
-        console.error('❌ ANTITAG admin check:', err);
-      }
-
-      // Les administrateurs ne sont pas concernés
-      if (!senderIsAdmin && !isCreator) {
-
-        const mode = state.antitag[jid];
-
-        // Supprimer le message
-        try {
-          await natsu.sendMessage(jid, {
-            delete: msg.key
-          });
-        } catch (err) {
-          console.error('❌ ANTITAG delete:', err);
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        // MODE KICK
-        // ─────────────────────────────────────────────────────────────
-
-        if (mode === 'kick') {
-
-          await sendText(
-            natsu,
-            jid,
-            `🚫 *ᴀɴᴛɪᴛᴀɢ*\n\n` +
-            `@${senderNum} a utilisé une mention massive.\n` +
-            `👢 Expulsion en cours...`,
-            msg,
-            [senderJid]
-          );
-
-          try {
-            const info = await getGroupAdmins(natsu, jid);
-
-            const botIsAdmin = isGroupAdmin(
-              info.admins,
-              natsu.user?.id,
-              info.meta
-            );
-
-            if (botIsAdmin) {
-
-              await natsu.groupParticipantsUpdate(
-                jid,
-                [senderJid],
-                'remove'
-              );
-
-            } else {
-
-              await sendText(
-                natsu,
-                jid,
-                `⚠️ Je dois être administrateur pour expulser @${senderNum}.`,
-                msg,
-                [senderJid]
-              );
-
-            }
-
-          } catch (err) {
-            console.error('❌ ANTITAG kick:', err);
-
-            await sendText(
-              natsu,
-              jid,
-              `❌ Impossible d'expulser @${senderNum}.`,
-              msg,
-              [senderJid]
-            );
-          }
-
-        } else {
-
-          // ─────────────────────────────────────────────────────────────
-          // MODE ON
-          // ─────────────────────────────────────────────────────────────
-
-          await sendText(
-            natsu,
-            jid,
-            `🚫 *ᴀɴᴛɪᴛᴀɢ*\n\n` +
-            `@${senderNum}, les mentions massives sont interdites dans ce groupe.\n\n` +
-            `👥 Mentions détectées : ${mentionedJids.length}`,
-            msg,
-            [senderJid]
-          );
-        }
-
-        // Ne pas continuer le traitement du message
-        return;
-      }
-    }
-
-  } catch (error) {
-    console.error('❌ Erreur ANTITAG:', error);
-  }
-}
   // ── AFK : si l'auteur est AFK, on l'enlève. Si quelqu'un mentionné est AFK, on prévient.
   try {
     if (state.afks?.[senderJid]) {
@@ -1006,102 +878,18 @@ if (isGroup(jid) && state.antitag?.[jid] && state.antitag[jid] !== 'off') {
     // Matches ANY URL (http/https, wa.me, t.me, chat.whatsapp.com, tiktok,
     // youtube, instagram, etc.) so it actually catches what users post.
     const LINK_RE = /(https?:\/\/\S+|www\.\S+|wa\.me\/\S+|t\.me\/\S+|chat\.whatsapp\.com\/\S+|\b[\w-]+\.(com|net|org|io|me|tv|gg|xyz|link|app|dev|co)\b\/?\S*)/i;
-
-const antiLinkMode = state?.antilink?.[jid];
-
-if (isGroup(jid) && antiLinkMode && LINK_RE.test(text)) {
-  const { admins, meta } = await getGroupAdmins(natsu, jid);
-  const senderIsAdmin = isGroupAdmin(admins, senderJid, meta);
-
-  // Les admins sont ignorés
-  if (!senderIsAdmin) {
-
-    // ─────────────────────────────────────────────────────────────
-    // 🗑️ SUPPRESSION DU MESSAGE
-    // ─────────────────────────────────────────────────────────────
-
-    try {
-      await natsu.sendMessage(jid, {
-        delete: msg.key
-      });
-    } catch (e) {
-      console.error(
-        '[ANTILINK] Delete error:',
-        e?.message || e
-      );
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // 🔨 KICK MODE
-    // ─────────────────────────────────────────────────────────────
-
-    if (antiLinkMode === 'kick') {
-
-      try {
-        await natsu.groupParticipantsUpdate(
-          jid,
-          [senderJid],
-          'remove'
-        );
-
-        await sendText(
-          natsu,
-          jid,
-          `╭━━━〔 🔗 *ANTILINK* 〕━━━╮
-
-⛔ @${senderNum}
-
-🔗 Lien détecté.
-🗑️ Message supprimé.
-🔨 Utilisateur expulsé du groupe.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`,
-          msg
-        );
-
-      } catch (e) {
-
-        console.error(
-          '[ANTILINK] Kick error:',
-          e?.message || e
-        );
-
-        await sendText(
-          natsu,
-          jid,
-          `⛔ @${senderNum} *Lien détecté et message supprimé, mais l'expulsion a échoué.*`,
-          msg
-        );
+    if (isGroup(jid) && state.antilink[jid] && LINK_RE.test(text)) {
+      const { admins, meta } = await getGroupAdmins(natsu, jid);
+      const senderIsAdmin = isGroupAdmin(admins, senderJid, meta);
+      if (!senderIsAdmin) {
+        try { await natsu.sendMessage(jid, { delete: msg.key }); }
+        catch (e) {}
+        try { await natsu.groupParticipantsUpdate(jid, [senderJid], 'remove'); }
+        catch (e) {}
+        return sendText(natsu, jid, `*⛔ @${senderNum} ʟɪɴᴋ ᴅᴇᴛᴇᴄᴛᴇᴅ — ᴍᴇssᴀɢᴇ ʀᴇᴍᴏᴠᴇᴅ.*`, msg);
       }
-
-    // ─────────────────────────────────────────────────────────────
-    // 🟢 ON MODE
-    // ─────────────────────────────────────────────────────────────
-
-    } else {
-
-      await sendText(
-        natsu,
-        jid,
-        `╭━━━〔 🔗 *ANTILINK* 〕━━━╮
-
-⚠️ @${senderNum}
-
-🔗 Lien détecté.
-🗑️ Message supprimé.
-
-📌 Le mode *KICK* n'est pas activé.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`,
-        msg
-      );
     }
-
     return;
-  }
-}
-
-return;
   }
 
   const body  = raw;
@@ -1272,199 +1060,6 @@ return;
         await reply(`🔗 *ANTILINK* : ${st.antilink[jid] ? '🟢 ON' : '🔴 OFF'}\n🤖 *ANTIBOT* : ${st.antibot[jid] ? '🟢 ON' : '🔴 OFF'}\n🚫 *ANTISPAM* : ${st.antispam[jid] ? '🟢 ON' : '🔴 OFF'}`);
         break;
       }
-     case 'antitag': {
-  try {
-
-    // ═══════════════════════════════════════════════════════════════════
-    // ANTITAG
-    // ═══════════════════════════════════════════════════════════════════
-
-    if (!isGroup(jid)) {
-      await reply('❌ Cette commande est utilisable uniquement dans les groupes.');
-      break;
-    }
-
-    // Vérifier que l'utilisateur est administrateur
-    const info = await requireGroupAdmin(
-      natsu,
-      jid,
-      msg,
-      senderJid,
-      reply
-    );
-
-    if (!info) break;
-
-    const currentState =
-      getState()?.antitag?.[jid] || 'off';
-
-    // ─────────────────────────────────────────────────────────────────
-    // Aucun argument
-    // ─────────────────────────────────────────────────────────────────
-
-    if (!arg) {
-
-      await reply(
-        `╭━━━〔 🚫 ANTITAG 〕━━━╮
-┃
-┃ 📊 État :
-┃ ${currentState === 'off'
-    ? '🔴 OFF'
-    : '🟢 ' + currentState.toUpperCase()}
-┃
-┃ 👥 Seuil : 5 mentions
-┃
-┃ Commandes :
-┃
-┃ • ${PREFIX}antitag on
-┃ • ${PREFIX}antitag off
-┃ • ${PREFIX}antitag kick
-┃ • ${PREFIX}antitag status
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-      );
-
-      break;
-    }
-
-    const action = arg.trim().toLowerCase();
-
-    // ─────────────────────────────────────────────────────────────────
-    // STATUS
-    // ─────────────────────────────────────────────────────────────────
-
-    if (
-      action === 'status' ||
-      action === 'state' ||
-      action === 'info'
-    ) {
-
-      await reply(
-        `╭━━━〔 🚫 ANTITAG STATUS 〕━━━╮
-┃
-┃ 📊 État :
-┃ ${currentState === 'off'
-    ? '🔴 OFF'
-    : '🟢 ' + currentState.toUpperCase()}
-┃
-┃ 👥 Seuil : 5 mentions
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-      );
-
-      break;
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // ON
-    // ─────────────────────────────────────────────────────────────────
-
-    if (
-      action === 'on' ||
-      action === 'enable' ||
-      action === '1' ||
-      action === 'true'
-    ) {
-
-      updateState(st => {
-
-        if (!st.antitag) {
-          st.antitag = {};
-        }
-
-        st.antitag[jid] = 'on';
-
-      });
-
-      await reply(
-        `✅ *ANTITAG ACTIVÉ* 🟢\n\n` +
-        `👥 Les mentions massives de 5 personnes ou plus seront bloquées.`
-      );
-
-      break;
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // KICK
-    // ─────────────────────────────────────────────────────────────────
-
-    if (
-      action === 'kick' ||
-      action === 'remove'
-    ) {
-
-      updateState(st => {
-
-        if (!st.antitag) {
-          st.antitag = {};
-        }
-
-        st.antitag[jid] = 'kick';
-
-      });
-
-      await reply(
-        `✅ *ANTITAG KICK ACTIVÉ* 🟢\n\n` +
-        `🚫 Les mentions massives seront supprimées.\n` +
-        `👢 Leur auteur sera expulsé.`
-      );
-
-      break;
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // OFF
-    // ─────────────────────────────────────────────────────────────────
-
-    if (
-      action === 'off' ||
-      action === 'disable' ||
-      action === '0' ||
-      action === 'false'
-    ) {
-
-      updateState(st => {
-
-        if (!st.antitag) {
-          st.antitag = {};
-        }
-
-        st.antitag[jid] = 'off';
-
-      });
-
-      await reply(
-        `❌ *ANTITAG DÉSACTIVÉ* 🔴`
-      );
-
-      break;
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // OPTION INVALIDE
-    // ─────────────────────────────────────────────────────────────────
-
-    await reply(
-      `❌ Option inconnue.\n\n` +
-      `Utilise :\n` +
-      `• ${PREFIX}antitag on\n` +
-      `• ${PREFIX}antitag off\n` +
-      `• ${PREFIX}antitag kick\n` +
-      `• ${PREFIX}antitag status`
-    );
-
-  } catch (error) {
-
-    console.error('❌ Erreur commande ANTITAG:', error);
-
-    await reply(
-      `❌ Une erreur est survenue avec ANTITAG.`
-    );
-
-  }
-
-  break;
-}
       case 'antibot': case 'antispam': {
         const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
         if (!info) break;
@@ -1477,168 +1072,154 @@ return;
         break;
       }
       case 'welcome':
-      case 'goodbye': {
-        const key = cmd === 'welcome' ? 'welcome' : 'goodbye';
-        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
-        if (!info) break;
+case 'goodbye': {
+    // ═══════════════════════════════════════════════════════════════
+    // WELCOME / GOODBYE — ADVANCED GROUP SYSTEM
+    // ═══════════════════════════════════════════════════════════════
 
-        const state = getState();
-        const configKey = `${key}Config`;
-        const currentState = state?.[key]?.[jid] !== false;
-        const config = state?.[configKey]?.[jid] || {};
-        const action = arg.trim();
+    const key = cmd === 'welcome' ? 'welcome' : 'goodbye';
 
-        if (!action) {
-          await reply(
-`╭━━━〔 ${key === 'welcome' ? '👋 WELCOME V2' : '🚪 GOODBYE V2'} 〕━━━╮
+    // Vérifier les droits admin
+    const info = await requireGroupAdmin(
+        natsu,
+        jid,
+        msg,
+        senderJid,
+        reply
+    );
+
+    if (!info) break;
+
+    // Récupérer l'état actuel
+    const state = getState();
+    const currentState = state?.[key]?.[jid] === true;
+
+    // ─────────────────────────────────────────────────────────────
+    // AIDE
+    // ─────────────────────────────────────────────────────────────
+    if (!arg || !arg.trim()) {
+        await reply(
+`╭━━━〔 ${key === 'welcome' ? '👋 WELCOME' : '🚪 GOODBYE'} 〕━━━╮
 ┃
-┃ 📊 État : ${currentState ? '🟢 ON' : '🔴 OFF'}
-┃ 🖼️ Image : ${config.image ? '✅ Personnalisée' : '🖼️ Défaut'}
-┃ 💬 Message : ${config.message ? '✏️ Personnalisé' : '📋 Défaut'}
+┃ 📌 État actuel : ${currentState ? '🟢 ON' : '🔴 OFF'}
 ┃
-┃ Commandes :
+┃ Utilisation :
 ┃ • ${PREFIX}${cmd} on
 ┃ • ${PREFIX}${cmd} off
-┃ • ${PREFIX}${cmd} status
-┃ • ${PREFIX}${cmd} test
-┃ • ${PREFIX}${cmd} msg <texte>
-┃ • ${PREFIX}${cmd} reset
 ┃
-┃ Variables :
-┃ @user  @group  @members
-┃ @bot   @prefix
+┃ Exemples :
+┃ • ${PREFIX}${cmd} on
+┃ • ${PREFIX}${cmd} off
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━╯`
-          );
-          break;
-        }
-
-        const [sub, ...rest] = action.split(/\s+/);
-        const value = rest.join(' ').trim();
-        const subLower = sub.toLowerCase();
-
-        if (['status', 'state', 'info'].includes(subLower)) {
-          await reply(
-`╭━━━〔 ⚙️ ${key.toUpperCase()} STATUS 〕━━━╮
-┃ 📊 État : ${currentState ? '🟢 ON' : '🔴 OFF'}
-┃ 🖼️ Image : ${config.image ? 'PERSONNALISÉE' : 'DÉFAUT'}
-┃ 💬 Message : ${config.message ? 'PERSONNALISÉ' : 'DÉFAUT'}
-┃
-┃ Groupe : ${jid}
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-          );
-          break;
-        }
-
-        if (['test', 'try'].includes(subLower)) {
-          const fakeJid = senderJid || `${senderNum}@s.whatsapp.net`;
-          const groupName = info.meta?.subject || 'ce groupe';
-          const members = info.meta?.participants?.length || 0;
-
-          const caption = renderGroupMessage(config.message, {
-            userJid: fakeJid,
-            groupName,
-            members,
-            botName: BOT_NAME,
-            prefix: state.prefix || PREFIX,
-            goodbye: key === 'goodbye',
-          });
-
-          try {
-            await natsu.sendMessage(jid, {
-              image: { url: config.image || MENU_IMAGE },
-              caption,
-              mentions: [fakeJid],
-              contextInfo: forwardedContext(),
-            }, { quoted: msg });
-          } catch {
-            await reply(caption);
-          }
-          break;
-        }
-
-        const enable = ['on', '1', 'true', 'enable', 'enabled', 'yes', 'oui', 'active', 'activé'];
-        const disable = ['off', '0', 'false', 'disable', 'disabled', 'no', 'non', 'desactive', 'désactivé'];
-
-        if (enable.includes(subLower) || disable.includes(subLower)) {
-          const newState = enable.includes(subLower);
-
-          if (currentState === newState) {
-            await reply(`ℹ️ *${cmd.toUpperCase()}* est déjà ${newState ? '🟢 ON' : '🔴 OFF'}.`);
-            break;
-          }
-
-          updateState(st => {
-            st[key] ??= {};
-            st[key][jid] = newState;
-          });
-
-          await reply(
-`╭━━━〔 ⚙️ ${key.toUpperCase()} 〕━━━╮
-┃ 📊 État : ${newState ? '🟢 ACTIVÉ' : '🔴 DÉSACTIVÉ'}
-┃ 👥 Groupe configuré avec succès.
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-          );
-          break;
-        }
-
-        if (['msg', 'message', 'setmsg', 'set'].includes(subLower)) {
-          if (!value) {
-            await reply(
-`❌ Usage :
-${PREFIX}${cmd} msg Bienvenue @user dans @group 🎉
-
-Variables :
-@user @group @members @bot @prefix`
-            );
-            break;
-          }
-
-          if (value.length > 1500) {
-            await reply('❌ Le message est trop long. Maximum : 1500 caractères.');
-            break;
-          }
-
-          updateState(st => {
-            st[configKey] ??= {};
-            st[configKey][jid] ??= {};
-            st[configKey][jid].message = value;
-          });
-
-          await reply(
-`✅ *${key.toUpperCase()}* personnalisé.
-
-💬 ${value}
-
-Variables :
-@user • @group • @members • @bot • @prefix`
-          );
-          break;
-        }
-
-        if (['reset', 'default', 'clear'].includes(subLower)) {
-          updateState(st => {
-            st[configKey] ??= {};
-            delete st[configKey][jid];
-          });
-
-          await reply(`✅ *${key.toUpperCase()}* remis à sa configuration par défaut.`);
-          break;
-        }
-
-        await reply(
-`❌ Option inconnue.
-
-Utilise :
-• ${PREFIX}${cmd} on
-• ${PREFIX}${cmd} off
-• ${PREFIX}${cmd} status
-• ${PREFIX}${cmd} test
-• ${PREFIX}${cmd} msg <texte>
-• ${PREFIX}${cmd} reset`
         );
         break;
-      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // NORMALISATION
+    // ─────────────────────────────────────────────────────────────
+    const action = arg.trim().toLowerCase();
+
+    const enableCommands = [
+        'on',
+        '1',
+        'true',
+        'enable',
+        'enabled',
+        'yes',
+        'oui',
+        'activé',
+        'active'
+    ];
+
+    const disableCommands = [
+        'off',
+        '0',
+        'false',
+        'disable',
+        'disabled',
+        'no',
+        'non',
+        'désactivé',
+        'desactive'
+    ];
+
+    let newState;
+
+    if (enableCommands.includes(action)) {
+        newState = true;
+    } else if (disableCommands.includes(action)) {
+        newState = false;
+    } else {
+        await reply(
+`❌ *Commande invalide.*
+
+📌 Utilise uniquement :
+
+🟢 ${PREFIX}${cmd} on
+🔴 ${PREFIX}${cmd} off
+
+État actuel : ${currentState ? '🟢 ON' : '🔴 OFF'}`
+        );
+        break;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // ÉVITER UNE FAUSSE MODIFICATION
+    // ─────────────────────────────────────────────────────────────
+    if (currentState === newState) {
+        await reply(
+`ℹ️ *${cmd.toUpperCase()}* est déjà ${newState ? '🟢 activé' : '🔴 désactivé'}.
+
+📍 Groupe : ${jid}`
+        );
+        break;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // SAUVEGARDE
+    // ─────────────────────────────────────────────────────────────
+    try {
+        updateState(st => {
+            if (!st[key]) {
+                st[key] = {};
+            }
+
+            st[key][jid] = newState;
+        });
+
+        // ─────────────────────────────────────────────────────────
+        // CONFIRMATION
+        // ─────────────────────────────────────────────────────────
+        await reply(
+`╭━━━〔 ⚙️ CONFIGURATION 〕━━━╮
+┃
+┃ ${key === 'welcome' ? '👋 Welcome' : '🚪 Goodbye'}
+┃
+┃ 📊 État : ${newState ? '🟢 ACTIVÉ' : '🔴 DÉSACTIVÉ'}
+┃
+┃ 👥 Groupe configuré avec succès.
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━╯`
+        );
+
+    } catch (error) {
+        console.error(
+            `[${cmd.toUpperCase()}] State update error:`,
+            error
+        );
+
+        await reply(
+`❌ Impossible de modifier *${cmd}*.
+
+⚠️ Une erreur est survenue pendant la sauvegarde.
+Réessaie dans quelques secondes.`
+        );
+    }
+
+    break;
+}
       case 'admins': case 'groupadmins': {
         if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
         const { meta } = await getGroupAdmins(natsu, jid);
@@ -1853,89 +1434,13 @@ Utilise :
         break;
       }
       case 'antilink': {
-  const info = await requireGroupAdmin(
-    natsu,
-    jid,
-    msg,
-    senderJid,
-    reply
-  );
-
-  if (!info) break;
-
-  const state = getState() || {};
-  state.antilink ??= {};
-
-  const current = state.antilink[jid];
-
-  if (!arg || !arg.trim()) {
-    const currentLabel =
-      current === 'kick'
-        ? '🔨 KICK'
-        : current === true
-          ? '🟢 ON'
-          : '🔴 OFF';
-
-    await reply(
-`╭━━━〔 🔗 *ANTILINK* 〕━━━╮
-┃
-┃ 📊 Mode actuel : ${currentLabel}
-┃
-┃ 🟢 ${PREFIX}antilink on
-┃ 🔴 ${PREFIX}antilink off
-┃ 🔨 ${PREFIX}antilink kick
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-    );
-
-    break;
-  }
-
-  const action = arg.trim().toLowerCase();
-
-  if (!['on', 'off', 'kick'].includes(action)) {
-    await reply(
-`❌ *Option invalide.*
-
-Utilise :
-
-🟢 ${PREFIX}antilink on
-🔴 ${PREFIX}antilink off
-🔨 ${PREFIX}antilink kick`
-    );
-
-    break;
-  }
-
-  const value =
-    action === 'on'
-      ? true
-      : action === 'kick'
-        ? 'kick'
-        : false;
-
-  updateState(st => {
-    st.antilink ??= {};
-    st.antilink[jid] = value;
-  });
-
-  await reply(
-`╭━━━〔 🔗 *ANTILINK* 〕━━━╮
-┃
-┃ 📊 Protection :
-┃ ${
-  action === 'on'
-    ? '🟢 ACTIVÉE'
-    : action === 'kick'
-      ? '🔨 KICK ACTIVÉ'
-      : '🔴 DÉSACTIVÉE'
-}
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-  );
-
-  break;
-}
+        const info = await requireGroupAdmin(natsu, jid, msg, senderJid, reply);
+        if (!info) break;
+        const on = /on|1|true/i.test(arg);
+        updateState(s => { s.antilink[jid] = on; });
+        await reply(`*🔗 ᴀɴᴛɪʟɪɴᴋ ${on ? 'enabled' : 'disabled'} ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.*`);
+        break;
+      }
       case 'vcf': {
         if (!isGroup(jid)) { await reply('*❌ ɢʀᴏᴜᴘ ᴏɴʟʏ.*'); break; }
         const { meta } = await getGroupAdmins(natsu, jid);
@@ -2541,322 +2046,49 @@ Utilise :
       case 'lidch': case 'idch': { await reply(`📡 Channel JID: ${NEWSLETTER_JID}`); break; }
       case 'react-ch': { await reply('💞 Reactions on channels require channel admin access.'); break; }
 
-      // ═// ═══════════════════════════════════════════════════════════════════════
-// 🖼️ IMAGE COMMANDS V3 — KILLUA MD
-// Compatible avec fetchAnyImage() + img() existants
-// ═══════════════════════════════════════════════════════════════════════
-
-case 'sfw':
-case 'moe':
-case 'aipic': {
-
-  const sources = [
-    'https://api.waifu.pics/sfw/waifu',
-    'https://api.waifu.pics/sfw/neko',
-    'https://nekos.best/api/v2/neko'
-  ];
-
-  try {
-
-    const url = await fetchAnyImage(sources);
-
-    if (!url) {
-      await reply(
-`╭━━━〔 ❌ *${cmd.toUpperCase()}* 〕━━━╮
-
-Aucune image disponible actuellement.
-
-🔄 Réessaie dans quelques secondes.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-      );
-      break;
-    }
-
-    await img(
-      url,
-`╭━━━〔 🖼️ *${cmd.toUpperCase()}* 〕━━━╮
-
-✨ Image trouvée avec succès !
-
-📸 Type : *SFW*
-⚡ KILLUA MD
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-    );
-
-  } catch (error) {
-
-    console.error(
-      `[IMAGE:${cmd.toUpperCase()}]`,
-      error?.message || error
-    );
-
-    await reply(
-`╭━━━〔 ❌ *IMAGE ERROR* 〕━━━╮
-
-Impossible de récupérer l'image.
-
-🔄 Réessaie plus tard.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-    );
-  }
-
-  break;
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════
-// 🚫 COMMANDES DÉSACTIVÉES
-// ═══════════════════════════════════════════════════════════════════════
-
-case 'hentai':
-case 'loli': {
-
-  await reply(
-`╭━━━〔 🚫 *COMMANDE DÉSACTIVÉE* 〕━━━╮
-
-❌ Cette commande est actuellement indisponible.
-
-🔒 Contenu non disponible sur KILLUA MD.
-
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`
-  );
-
-  break;
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════
-// 👤 🚗 IMAGE CATEGORIES
-// ═══════════════════════════════════════════════════════════════════════
-
-case 'chinagirl':
-case 'bluearchive':
-case 'boypic':
-case 'carimage':
-case 'random-girl':
-case 'hijab-girl':
-case 'indonesia-girl':
-case 'japan-girl':
-case 'korean-girl':
-case 'malaysia-girl':
-case 'profile-pictures':
-case 'tiktokgirl': {
-
-  const imageConfig = {
-
-    chinagirl: {
-      prompt: 'adult Chinese woman portrait, elegant fashion, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu',
-        'https://api.waifu.pics/sfw/neko'
-      ]
-    },
-
-    bluearchive: {
-      prompt: 'Blue Archive inspired anime character, blue aesthetic, high quality anime art, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu',
-        'https://nekos.best/api/v2/waifu'
-      ]
-    },
-
-    boypic: {
-      prompt: 'handsome adult anime boy portrait, stylish profile picture, high quality, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu',
-        'https://nekos.best/api/v2/neko'
-      ]
-    },
-
-    carimage: {
-      prompt: 'cinematic luxury sports car photography, realistic, 4k, dramatic lighting',
-      fallback: [
-        'https://images.unsplash.com/photo-1503376780353-7e6692767b70',
-        'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7',
-        'https://images.unsplash.com/photo-1503736334956-4c8f8e92946d'
-      ]
-    },
-
-    'random-girl': {
-      prompt: 'adult woman aesthetic portrait, beautiful profile picture, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu',
-        'https://api.waifu.pics/sfw/neko'
-      ]
-    },
-
-    'hijab-girl': {
-      prompt: 'adult woman wearing an elegant hijab, beautiful portrait photography, modest fashion, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu'
-      ]
-    },
-
-    'indonesia-girl': {
-      prompt: 'adult Indonesian woman portrait, elegant traditional modern fashion, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu'
-      ]
-    },
-
-    'japan-girl': {
-      prompt: 'adult Japanese woman portrait, elegant Japanese fashion, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu'
-      ]
-    },
-
-    'korean-girl': {
-      prompt: 'adult Korean woman portrait, Korean fashion style, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu'
-      ]
-    },
-
-    'malaysia-girl': {
-      prompt: 'adult Malaysian woman portrait, elegant fashion, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu'
-      ]
-    },
-
-    'profile-pictures': {
-      prompt: 'cool aesthetic profile picture, premium digital art, high quality avatar',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu',
-        'https://api.waifu.pics/sfw/neko'
-      ]
-    },
-
-    tiktokgirl: {
-      prompt: 'adult woman modern social media profile picture, trendy aesthetic, realistic photography, safe for work',
-      fallback: [
-        'https://api.waifu.pics/sfw/waifu'
-      ]
-    }
-
-  };
-
-  try {
-
-    const config = imageConfig[cmd];
-
-    if (!config) {
-      await reply(`❌ Catégorie d'image inconnue : *${cmd}*`);
-      break;
-    }
-
-    let url = null;
-
-    // ───────────────────────────────────────────────────────────────
-    // 🚗 CARIMAGE
-    // Utilise directement les images réelles
-    // ───────────────────────────────────────────────────────────────
-
-    if (cmd === 'carimage') {
-
-      url = config.fallback[
-        Math.floor(Math.random() * config.fallback.length)
-      ];
-
-    } else {
-
-      // ─────────────────────────────────────────────────────────────
-      // 🎨 Tentative génération AI
-      // ─────────────────────────────────────────────────────────────
-
-      const aiUrl =
-        `https://image.pollinations.ai/prompt/` +
-        `${encodeURIComponent(config.prompt)}` +
-        `?width=768&height=768&nologo=true`;
-
-      try {
-
-        const response = await axios.get(aiUrl, {
-          timeout: 12000,
-          responseType: 'arraybuffer',
-          headers: {
-            'User-Agent': 'Mozilla/5.0'
-          }
-        });
-
-        if (response.status >= 200 && response.status < 300) {
-          url = aiUrl;
-        }
-
-      } catch (aiError) {
-
-        console.warn(
-          `[IMAGE-AI:${cmd}]`,
-          aiError?.message || aiError
-        );
-
+      // ═════════════════════════════════════════════════════════════════════
+      // RANDOM IMAGE
+      // ═════════════════════════════════════════════════════════════════════
+      case 'sfw': case 'moe': case 'aipic': {
+        const url = await fetchAnyImage([
+          'https://api.waifu.pics/sfw/waifu',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/neko'
+        ]);
+        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Image indisponible, réessaie.');
+        break;
+      }
+      case 'hentai': case 'loli': {
+        await reply('❌ Cette commande est désactivée.');
+        break;
       }
 
-      // ─────────────────────────────────────────────────────────────
-      // 🔄 FALLBACK API
-      // ─────────────────────────────────────────────────────────────
-
-      if (!url) {
-        url = await fetchAnyImage(config.fallback);
+      case 'chinagirl': case 'bluearchive': case 'boypic': case 'carimage':
+      case 'random-girl': case 'hijab-girl': case 'indonesia-girl':
+      case 'japan-girl': case 'korean-girl': case 'malaysia-girl':
+      case 'profile-pictures': case 'tiktokgirl': {
+        const prompts = {
+          chinagirl:'portrait of an adult Chinese woman, elegant, safe for work',
+          bluearchive:'anime character, blue themed, safe for work',
+          boypic:'anime boy portrait, profile picture, safe for work',
+          carimage:'cinematic sports car, high quality photography',
+          'random-girl':'portrait of an adult woman, aesthetic profile picture, safe for work',
+          'hijab-girl':'portrait of an adult woman wearing a hijab, elegant, safe for work',
+          'indonesia-girl':'portrait of an adult Indonesian woman, elegant, safe for work',
+          'japan-girl':'portrait of an adult Japanese woman, elegant, safe for work',
+          'korean-girl':'portrait of an adult Korean woman, elegant, safe for work',
+          'malaysia-girl':'portrait of an adult Malaysian woman, elegant, safe for work',
+          'profile-pictures':'cool aesthetic profile picture, digital art',
+          tiktokgirl:'portrait of an adult woman, modern social profile picture, safe for work'
+        };
+        const url = await fetchAnyImage([
+          'https://api.waifu.pics/sfw/waifu',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/neko'
+        ]);
+        if (url) await img(url, `🖼️ *${cmd.toUpperCase()}*`); else await reply('❌ Image indisponible, réessaie.');
+        break;
       }
-    }
-
-    if (!url) {
-
-      await reply(
-`╭━━━〔 ❌ *${cmd.toUpperCase()}* 〕━━━╮
-
-Aucune image disponible actuellement.
-
-🔄 Réessaie dans quelques secondes.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-      );
-
-      break;
-    }
-
-    // ───────────────────────────────────────────────────────────────
-    // 📤 ENVOI IMAGE
-    // ───────────────────────────────────────────────────────────────
-
-    await img(
-      url,
-`╭━━━〔 🖼️ *${cmd.toUpperCase()}* 〕━━━╮
-
-✨ Image disponible !
-
-📌 Catégorie : *${cmd}*
-🤖 KILLUA MD
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-    );
-
-  } catch (error) {
-
-    console.error(
-      `[IMAGE:${cmd.toUpperCase()}]`,
-      error?.stack || error?.message || error
-    );
-
-    await reply(
-`╭━━━〔 ❌ *IMAGE ERROR* 〕━━━╮
-
-Une erreur est survenue
-pendant la récupération de l'image.
-
-🔄 Réessaie plus tard.
-
-╰━━━━━━━━━━━━━━━━━━━━━━╯`
-    );
-  }
-
-  break;
-}
 
       // ═════════════════════════════════════════════════════════════════════
       // PAYMENT MENU
@@ -2909,30 +2141,7 @@ pendant la récupération de l'image.
       // CONVERTER
       // ═════════════════════════════════════════════════════════════════════
       case 'telegraph': { await reply('📝 Telegraph upload requires reply to image/text (will be enabled with multipart upload pipeline).'); break; }
-      case 'url': {
-        const q = quotedMsg(msg);
-        const imageMessage = q?.quoted?.imageMessage;
-        if (!imageMessage) {
-          await reply(`❌ Réponds à une image avec *${PREFIX}url*.`);
-          break;
-        }
-        try {
-          await reply('⏳ Upload de l’image en cours…');
-          const buffer = await getQuotedImageBuffer(msg);
-          const result = await uploadImageUrl(buffer, `killua-${Date.now()}.jpg`);
-          await reply(
-            `╭━━〔 🖼️ *IMAGE UPLOADED* 〕━━╮\n` +
-            `│ 📦 Size: ${(buffer.length / 1024).toFixed(2)} KB\n` +
-            `│ ☁️ Host: ${result.provider}\n` +
-            `│ 🔗 URL: ${result.url}\n` +
-            `╰━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-            `📋 Copie le lien ci-dessus.`
-          );
-        } catch (e) {
-          await reply(`❌ Upload échoué.\n_${e?.message || e}_`);
-        }
-        break;
-      }
+      case 'url': { await reply(`🔗 ${PREFIX}url — short an URL: ${PREFIX}shorturl <url>`); break; }
 
       // ═════════════════════════════════════════════════════════════════════
       // DOWNLOADER
@@ -3271,25 +2480,11 @@ END:VCARD`;
         } catch (e) { await reply(`❌ Lyrics : ${e.message}`); }
         break;
       }
-      case 'removebg': case 'rmbg': {
+      case 'removebg': {
         const q = quotedMsg(msg);
-        if (!q?.quoted?.imageMessage) {
-          await reply(`❌ Réponds à une image avec *${PREFIX}rmbg*.`);
-          break;
-        }
-        try {
-          await reply('⏳ Suppression du fond en cours…');
-          const buffer = await getQuotedImageBuffer(msg);
-          const output = await removeImageBackground(buffer);
-          await natsu.sendMessage(jid, {
-            image: output,
-            mimetype: 'image/png',
-            caption: '✨ *BACKGROUND REMOVED*\n🖼️ Image PNG avec fond transparent.\n© KILLUA MD',
-            contextInfo: forwardedContext(),
-          }, { quoted: msg });
-        } catch (e) {
-          await reply(`❌ rmbg échoué.\n_${e?.message || e}_`);
-        }
+        if (!q?.quoted?.imageMessage) { await reply('❌ Réponds à une image.'); break; }
+        await reply('⏳ Removing background…');
+        await reply('⚠️ removebg nécessite une clé API (remove.bg). Ajoute REMOVE_BG_KEY puis active le pipeline upload.');
         break;
       }
       case 'upscale': {
