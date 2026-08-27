@@ -1,3 +1,5 @@
+
+
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -6,19 +8,18 @@ import makeWASocket, {
   Browsers,
   proto,
 } from '@whiskeysockets/baileys';
-
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import axios from 'axios';
-
 import {
   handleCommand,
   handleGroupWelcome,
   WA_CHANNELS,
   WA_GROUPS,
+  PREFIX,
   BOT_NAME,
   DEV_NAME,
   MENU_IMAGE,
@@ -28,1432 +29,402 @@ import {
   invalidateGroupCache,
 } from './commands.js';
 
-const __dirname =
-  path.dirname(
-    fileURLToPath(import.meta.url)
-  );
-
-const SESSIONS_DIR =
-  path.join(
-    __dirname,
-    'sessions'
-  );
-
-const PROFILE_PIC_PATH =
-  path.join(
-    __dirname,
-    'assets',
-    'profile.jpg'
-  );
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SESSIONS_DIR = path.join(__dirname, 'sessions');
+const PROFILE_PIC_PATH = path.join(__dirname, 'assets', 'profile.jpg');
 
 const activeSessions = new Map();
 const reconnectAttempts = new Map();
-const startingSessions = new Set();
+const logger = pino({ level: 'silent' });
 
+// Deduplication cache
 const processedMsgIds = new Set();
 
-const MAX_PROCESSED_MESSAGES = 1000;
-
-const logger = pino({
-  level: 'silent',
-});
-
-// ============================================================
-// HELPERS
-// ============================================================
-
 function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(
-      dir,
-      { recursive: true }
-    );
-  }
-}
-
-function sleep(ms) {
-  return new Promise(
-    resolve => setTimeout(resolve, ms)
-  );
-}
-
-function normalizeNumber(value) {
-  return String(value ?? '')
-    .replace(/\D/g, '');
-}
-
-function validNumber(number) {
-  return /^\d{8,15}$/.test(number);
-}
-
-function getSessionPath(number) {
-  const clean =
-    normalizeNumber(number);
-
-  if (!validNumber(clean)) {
-    throw new Error(
-      'Invalid phone number.'
-    );
-  }
-
-  return path.join(
-    SESSIONS_DIR,
-    clean
-  );
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 ensureDir(SESSIONS_DIR);
-ensureDir(
-  path.join(
-    __dirname,
-    'assets'
-  )
-);
+ensureDir(path.join(__dirname, 'assets'));
 
-// ============================================================
-// PROFILE
-// ============================================================
-
+// ── Profile picture (uses MENU_IMAGE) ────────────────────────────────────────
 async function getProfilePicBuffer() {
-  if (
-    fs.existsSync(
-      PROFILE_PIC_PATH
-    )
-  ) {
-    try {
-      return fs.readFileSync(
-        PROFILE_PIC_PATH
-      );
-    } catch {}
+  if (fs.existsSync(PROFILE_PIC_PATH)) {
+    try { return fs.readFileSync(PROFILE_PIC_PATH); } catch {}
   }
-
-  if (!MENU_IMAGE) {
-    return null;
-  }
-
   try {
-    const response =
-      await axios.get(
-        MENU_IMAGE,
-        {
-          responseType:
-            'arraybuffer',
-          timeout: 15000,
-          maxContentLength:
-            10 * 1024 * 1024,
-        }
-      );
-
-    const buffer =
-      Buffer.from(
-        response.data
-      );
-
-    fs.writeFileSync(
-      PROFILE_PIC_PATH,
-      buffer
-    );
-
-    return buffer;
-
-  } catch (error) {
-    console.log(
-      `⚠️ Profile image: ${
-        error?.message || error
-      }`
-    );
-
+    const res = await axios.get(MENU_IMAGE, { responseType: 'arraybuffer', timeout: 15000 });
+    const buf = Buffer.from(res.data);
+    fs.writeFileSync(PROFILE_PIC_PATH, buf);
+    return buf;
+  } catch {
     return null;
   }
 }
 
-async function setupBotProfile(
-  natsu
-) {
+async function setupBotProfile(natsu) {
   try {
-    await natsu.updateProfileName(
-      BOT_NAME
-    );
-
-    console.log(
-      `✅ Profile name: ${BOT_NAME}`
-    );
-  } catch (error) {
-    console.log(
-      `⚠️ Profile name: ${
-        error?.message || error
-      }`
-    );
+    await natsu.updateProfileName(BOT_NAME);
+    console.log(`✅ Profile name set: ${BOT_NAME}`);
+  } catch (err) {
+    console.log(`⚠️ Could not set profile name: ${err.message}`);
   }
-
   try {
-    const image =
-      await getProfilePicBuffer();
-
-    const jid =
-      natsu.user?.id;
-
-    if (
-      !image ||
-      !jid
-    ) {
-      return;
+    const imgBuf = await getProfilePicBuffer();
+    if (imgBuf) {
+      await natsu.updateProfilePicture(natsu.user.id, imgBuf);
+      console.log('✅ Profile picture updated.');
     }
-
-    await natsu.updateProfilePicture(
-      jid,
-      image
-    );
-
-    console.log(
-      '✅ Profile picture updated.'
-    );
-
-  } catch (error) {
-    console.log(
-      `⚠️ Profile picture: ${
-        error?.message || error
-      }`
-    );
+  } catch (err) {
+    console.log(`⚠️ Could not set profile picture: ${err.message}`);
   }
 }
 
-// ============================================================
-// WELCOME
-// ============================================================
-
-async function sendWelcomeMessage(
-  natsu,
-  phoneNumber
-) {
-  const selfJid =
-    `${phoneNumber}@s.whatsapp.net`;
-
-  const caption = `
-╭━━━━━━━━━━━━━━━━━━━━━━━╮
-        ✦ 𝐊𝐈𝐋𝐋𝐔𝐀 𝐓𝐌 ✦
+// ── Welcome message (with image + forwarded-from-channel context) ────────────
+async function sendWelcomeMessage(natsu, phoneNumber) {
+  const selfJid = `${phoneNumber}@s.whatsapp.net`;
+  const caption =
+`╭━━━━━━━━━━━━━━━━━━━━━━━╮
+        ✦ 𝐊𝐈𝐋𝐋𝐔𝐀 𝐓𝐌  ✦
 ╰━━━━━━━━━━━━━━━━━━━━━━━╯
-
        𝗦𝗘𝗦𝗦𝗜𝗢𝗡 𝗔𝗖𝗧𝗜𝗩𝗔𝗧𝗘𝗗
-
 ╭────────────────────────╮
-│ *✅ Status : Connected*
-│ *📱 Number : +${phoneNumber}*
-│ *🤖 Bot : ${BOT_NAME}*
-│ *🔐 Device : Multi Device*
+│ *✅ Status      : Connected*
+│ *📱 Number      : +${phoneNumber}*
+│ *🤖 Bot         : ${BOT_NAME}*
+│ *🔐 Device      : Multi Device*
 ╰────────────────────────╯
-
 ╭───────────────────────╮
-│ *Welcome to my world*
-│ *Use the bot responsibly*
+│ *Welcome to my world *
+│ *use the bot security*
 │ *Optimized for Multi-Device*
 ╰───────────────────────╯
-
 ┏━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ *🍁 Developer : ${DEV_NAME}*
 ┃ *🤖 ${BOT_NAME}*
-┗━━━━━━━━━━━━━━━━━━━━━━━━┛
-`.trim();
-
+┗━━━━━━━━━━━━━━━━━━━━━━━━┛`;
   try {
-    if (!MENU_IMAGE) {
-      throw new Error(
-        'MENU_IMAGE is empty'
-      );
-    }
-
-    await natsu.sendMessage(
-      selfJid,
-      {
-        image: {
-          url: MENU_IMAGE,
-        },
-        caption,
-        contextInfo:
-          forwardedContext(),
-      }
-    );
-
-    console.log(
-      `📩 [+${phoneNumber}] Welcome sent.`
-    );
-
-  } catch (error) {
-    console.log(
-      `⚠️ [+${phoneNumber}] Welcome image failed.`
-    );
-
+    await natsu.sendMessage(selfJid, {
+      image: { url: MENU_IMAGE },
+      caption,
+      contextInfo: forwardedContext(),
+    });
+    console.log(`📩 [${phoneNumber}] Welcome message sent.`);
+  } catch (err) {
+    // Fallback text-only if image fails
     try {
-      await natsu.sendMessage(
-        selfJid,
-        {
-          text: caption,
-          contextInfo:
-            forwardedContext(),
-        }
-      );
-
-      console.log(
-        `📩 [+${phoneNumber}] Text welcome sent.`
-      );
-
-    } catch (fallback) {
-      console.log(
-        `❌ [+${phoneNumber}] Welcome failed: ${
-          fallback?.message || fallback
-        }`
-      );
+      await natsu.sendMessage(selfJid, { text: caption, contextInfo: forwardedContext() });
+      console.log(`📩 [${phoneNumber}] Welcome message sent (text fallback).`);
+    } catch (e) {
+      console.log(`⚠️ [${phoneNumber}] Welcome message failed: ${e.message}`);
     }
   }
 }
 
-// ============================================================
-// AUTO JOIN
-// ============================================================
+// ── Auto-join channels + group ───────────────────────────────────────────────
+async function autoJoinChannelsAndGroups(natsu, phoneNumber) {
+  console.log(`🔗 [${phoneNumber}] Auto-joining channels & groups...`);
 
-async function autoJoinChannelsAndGroups(
-  natsu,
-  phoneNumber
-) {
-  console.log(
-    `🔗 [+${phoneNumber}] Auto-join starting...`
-  );
-
-  // Newsletter
-  if (NEWSLETTER_JID) {
-    try {
-      if (
-        typeof natsu.newsletterFollow ===
-        'function'
-      ) {
-        await natsu.newsletterFollow(
-          NEWSLETTER_JID
-        );
-
-        console.log(
-          `✅ [+${phoneNumber}] Newsletter: ${
-            NEWSLETTER_NAME || NEWSLETTER_JID
-          }`
-        );
-      }
-    } catch (error) {
-      console.log(
-        `⚠️ Newsletter: ${
-          error?.message || error
-        }`
-      );
-    }
-  }
-
-  // Channels
-  for (
-    const link of WA_CHANNELS || []
-  ) {
-    try {
-      const code =
-        String(link)
-          .replace(/\/$/, '')
-          .split('/')
-          .pop();
-
-      if (!code) continue;
-
-      if (
-        typeof natsu.newsletterFollow ===
-        'function'
-      ) {
-        await natsu.newsletterFollow(
-          code
-        );
-      } else if (
-        typeof natsu.followNewsletter ===
-        'function'
-      ) {
-        await natsu.followNewsletter(
-          code
-        );
-      }
-
-      console.log(
-        `✅ [+${phoneNumber}] Channel: ${code}`
-      );
-
-    } catch (error) {
-      console.log(
-        `⚠️ Channel: ${
-          error?.message || error
-        }`
-      );
-    }
-
-    await sleep(2000);
-  }
-
-  // Groups
-  for (
-    const link of WA_GROUPS || []
-  ) {
-    try {
-      const code =
-        String(link)
-          .replace(/\/$/, '')
-          .split('/')
-          .pop();
-
-      if (!code) continue;
-
-      if (
-        typeof natsu.groupAcceptInvite !==
-        'function'
-      ) {
-        console.log(
-          `⚠️ groupAcceptInvite unavailable.`
-        );
-        continue;
-      }
-
-      await natsu.groupAcceptInvite(
-        code
-      );
-
-      console.log(
-        `✅ [+${phoneNumber}] Group joined: ${code}`
-      );
-
-    } catch (error) {
-      console.log(
-        `⚠️ Group: ${
-          error?.message || error
-        }`
-      );
-    }
-
-    await sleep(2000);
-  }
-
-  console.log(
-    `✅ [+${phoneNumber}] Auto-join completed.`
-  );
-}
-
-// ============================================================
-// CLEAN SOCKET
-// ============================================================
-
-function cleanupSocket(
-  phoneNumber,
-  natsu
-) {
-  const current =
-    activeSessions.get(
-      phoneNumber
-    );
-
-  if (
-    current?.natsu === natsu
-  ) {
-    activeSessions.delete(
-      phoneNumber
-    );
-  }
-
+  // Always follow the official newsletter
   try {
-    natsu?.ev?.removeAllListeners?.();
-  } catch {}
-
-  try {
-    natsu?.end?.();
-  } catch {}
-}
-
-// ============================================================
-// CREATE SESSION
-// ============================================================
-
-export async function createSession(
-  phoneNumber
-) {
-  const number =
-    normalizeNumber(
-      phoneNumber
-    );
-
-  if (!validNumber(number)) {
-    throw new Error(
-      'Invalid phone number. Use international format without +.'
-    );
+    if (typeof natsu.newsletterFollow === 'function') {
+      await natsu.newsletterFollow(NEWSLETTER_JID);
+      console.log(`✅ [${phoneNumber}] Followed newsletter ${NEWSLETTER_NAME}`);
+    }
+  } catch (err) {
+    console.log(`⚠️ [${phoneNumber}] Newsletter follow skip: ${err.message}`);
   }
 
-  // Prevent duplicate initialization
-  if (
-    startingSessions.has(number)
-  ) {
-    console.log(
-      `⏳ [+${number}] Session already starting.`
-    );
-
-    const existing =
-      activeSessions.get(number);
-
-    return {
-      natsu:
-        existing?.natsu || null,
-      code: null,
-    };
-  }
-
-  // If already connected, don't create another socket
-  const existing =
-    activeSessions.get(number);
-
-  if (
-    existing?.connected
-  ) {
-    return {
-      natsu: existing.natsu,
-      code: null,
-    };
-  }
-
-  startingSessions.add(number);
-
-  const sessionPath =
-    getSessionPath(number);
-
-  try {
-    ensureDir(sessionPath);
-
-    const {
-      state,
-      saveCreds,
-    } =
-      await useMultiFileAuthState(
-        sessionPath
-      );
-
-    const {
-      version,
-    } =
-      await fetchLatestBaileysVersion();
-
-    console.log(
-      `🔧 [+${number}] Baileys ${version.join('.')}`
-    );
-
-    const natsu =
-      makeWASocket({
-        version,
-
-        logger,
-
-        printQRInTerminal:
-          false,
-
-        auth: {
-          creds:
-            state.creds,
-
-          keys:
-            makeCacheableSignalKeyStore(
-              state.keys,
-              logger
-            ),
-        },
-
-        browser:
-          Browsers.ubuntu(
-            'Chrome'
-          ),
-
-        connectTimeoutMs:
-          60_000,
-
-        defaultQueryTimeoutMs:
-          60_000,
-
-        keepAliveIntervalMs:
-          25_000,
-
-        markOnlineOnConnect:
-          false,
-
-        syncFullHistory:
-          false,
-
-        shouldSyncHistoryMessage:
-          () => false,
-
-        emitOwnEvents:
-          true,
-
-        generateHighQualityLinkPreview:
-          false,
-
-        getMessage:
-          async () =>
-            proto.Message.fromObject(
-              {}
-            ),
-      });
-
-    activeSessions.set(
-      number,
-      {
-        natsu,
-        connected: false,
-        startedAt: Date.now(),
-        lastActivity: Date.now(),
-      }
-    );
-
-    // ========================================================
-    // CREDS
-    // ========================================================
-
-    const safeSaveCreds =
-      async () => {
-        try {
-          await saveCreds();
-        } catch (error) {
-          console.log(
-            `⚠️ [+${number}] saveCreds: ${
-              error?.message || error
-            }`
-          );
-        }
-      };
-
-    natsu.ev.on(
-      'creds.update',
-      safeSaveCreds
-    );
-
-    // ========================================================
-    // CONNECTION
-    // ========================================================
-
-    natsu.ev.on(
-      'connection.update',
-      async update => {
-        const {
-          connection,
-          lastDisconnect,
-        } = update;
-
-        const entry =
-          activeSessions.get(
-            number
-          );
-
-        // ------------------------------
-        // CONNECTED
-        // ------------------------------
-
-        if (
-          connection === 'open'
-        ) {
-          console.log(
-            `✅ WhatsApp connected: +${number}`
-          );
-
-          reconnectAttempts.delete(
-            number
-          );
-
-          if (
-            entry?.natsu === natsu
-          ) {
-            entry.connected = true;
-            entry.lastActivity =
-              Date.now();
-          }
-
-          // Profile
-          setupBotProfile(
-            natsu
-          ).catch(error =>
-            console.log(
-              `⚠️ Profile: ${
-                error?.message || error
-              }`
-            )
-          );
-
-          // Welcome
-          setTimeout(() => {
-            sendWelcomeMessage(
-              natsu,
-              number
-            ).catch(error =>
-              console.log(
-                `⚠️ Welcome: ${
-                  error?.message || error
-                }`
-              )
-            );
-
-            autoJoinChannelsAndGroups(
-              natsu,
-              number
-            ).catch(error =>
-              console.log(
-                `⚠️ AutoJoin: ${
-                  error?.message || error
-                }`
-              )
-            );
-          }, 2500);
-
-          return;
-        }
-
-        // ------------------------------
-        // CLOSED
-        // ------------------------------
-
-        if (
-          connection !== 'close'
-        ) {
-          return;
-        }
-
-        const rawError =
-          lastDisconnect?.error;
-
-        let statusCode;
-
-        try {
-          statusCode =
-            rawError instanceof Boom
-              ? rawError.output
-                  ?.statusCode
-              : new Boom(
-                  rawError
-                ).output
-                  ?.statusCode;
-        } catch {
-          statusCode =
-            undefined;
-        }
-
-        console.log(
-          `🔌 [+${number}] Closed — code: ${statusCode}`
-        );
-
-        if (
-          activeSessions.get(
-            number
-          )?.natsu === natsu
-        ) {
-          activeSessions.delete(
-            number
-          );
-        }
-
-        // ------------------------------
-        // FATAL
-        // ------------------------------
-
-        const fatal =
-          statusCode ===
-            DisconnectReason.loggedOut ||
-          statusCode === 401 ||
-          statusCode === 403 ||
-          statusCode === 405 ||
-          statusCode ===
-            DisconnectReason.badSession;
-
-        if (fatal) {
-          console.log(
-            `🗑️ [+${number}] Fatal session error.`
-          );
-
-          reconnectAttempts.delete(
-            number
-          );
-
-          try {
-            natsu.ev.removeAllListeners?.();
-          } catch {}
-
-          try {
-            natsu.end?.();
-          } catch {}
-
-          setTimeout(() => {
-            try {
-              fs.rmSync(
-                sessionPath,
-                {
-                  recursive: true,
-                  force: true,
-                }
-              );
-
-              console.log(
-                `🗑️ [+${number}] Session deleted.`
-              );
-            } catch {}
-          }, 1500);
-
-          return;
-        }
-
-        // ------------------------------
-        // CONNECTION REPLACED
-        // ------------------------------
-
-        if (
-          statusCode ===
-          DisconnectReason.connectionReplaced
-        ) {
-          console.log(
-            `⛔ [+${number}] Connection replaced.`
-          );
-
-          reconnectAttempts.delete(
-            number
-          );
-
-          return;
-        }
-
-        // ------------------------------
-        // RECONNECT
-        // ------------------------------
-
-        const attempts =
-          (
-            reconnectAttempts.get(
-              number
-            ) || 0
-          ) + 1;
-
-        reconnectAttempts.set(
-          number,
-          attempts
-        );
-
-        if (
-          attempts > 20
-        ) {
-          console.log(
-            `⏸️ [+${number}] Reconnect cooldown.`
-          );
-
-          reconnectAttempts.delete(
-            number
-          );
-
-          setTimeout(() => {
-            if (
-              activeSessions.has(
-                number
-              )
-            ) {
-              return;
-            }
-
-            console.log(
-              `🔁 [+${number}] Restarting session...`
-            );
-
-            createSession(
-              number
-            ).catch(error =>
-              console.log(
-                `❌ Restart: ${
-                  error?.message || error
-                }`
-              )
-            );
-
-          }, 10 * 60 * 1000);
-
-          return;
-        }
-
-        const delay =
-          Math.min(
-            2000 * attempts,
-            30_000
-          );
-
-        console.log(
-          `🔄 [+${number}] Reconnect in ${
-            delay / 1000
-          }s — attempt ${attempts}`
-        );
-
-        setTimeout(() => {
-          if (
-            activeSessions.has(
-              number
-            )
-          ) {
-            return;
-          }
-
-          createSession(
-            number
-          ).catch(error =>
-            console.log(
-              `❌ Reconnect: ${
-                error?.message || error
-              }`
-            )
-          );
-        }, delay);
-      }
-    );
-
-    // ========================================================
-    // MESSAGES
-    // ========================================================
-
-    natsu.ev.on(
-      'messages.upsert',
-      async ({
-        messages,
-        type,
-      }) => {
-        if (
-          type === 'append'
-        ) {
-          return;
-        }
-
-        const entry =
-          activeSessions.get(
-            number
-          );
-
-        if (
-          entry?.natsu === natsu
-        ) {
-          entry.lastActivity =
-            Date.now();
-        }
-
-        for (
-          const msg of messages || []
-        ) {
-          try {
-            if (
-              !msg?.message
-            ) {
-              continue;
-            }
-
-            const jid =
-              msg.key?.remoteJid ||
-              '';
-
-            if (
-              !jid ||
-              jid ===
-                'status@broadcast'
-            ) {
-              continue;
-            }
-
-            const msgId =
-              msg.key?.id;
-
-            if (!msgId) {
-              continue;
-            }
-
-            if (
-              processedMsgIds.has(
-                msgId
-              )
-            ) {
-              continue;
-            }
-
-            processedMsgIds.add(
-              msgId
-            );
-
-            if (
-              processedMsgIds.size >
-              MAX_PROCESSED_MESSAGES
-            ) {
-              const first =
-                processedMsgIds
-                  .values()
-                  .next()
-                  .value;
-
-              if (first) {
-                processedMsgIds.delete(
-                  first
-                );
-              }
-            }
-
-            // Command handler
-            handleCommand(
-              natsu,
-              msg
-            ).catch(error =>
-              console.error(
-                `❌ handleCommand [+${number}]:`,
-                error?.message ||
-                  error
-              )
-            );
-
-          } catch (error) {
-            console.error(
-              `❌ Message [+${number}]:`,
-              error?.message ||
-                error
-            );
-          }
-        }
-      }
-    );
-
-    // ========================================================
-    // GROUP WELCOME / GOODBYE
-    // ========================================================
-
-    natsu.ev.on(
-      'group-participants.update',
-      async update => {
-        try {
-          if (!update?.id) {
-            return;
-          }
-
-          invalidateGroupCache(
-            update.id
-          );
-
-          console.log(
-            `👥 [+${number}] Group event: ${update.id} — ${update.action || ''}`
-          );
-
-          await handleGroupWelcome(
-            natsu,
-            update
-          );
-
-        } catch (error) {
-          console.error(
-            `❌ Group handler [+${number}]:`,
-            error?.message ||
-              error
-          );
-        }
-      }
-    );
-
-    natsu.ev.on(
-      'groups.update',
-      updates => {
-        try {
-          for (
-            const update of updates || []
-          ) {
-            if (update?.id) {
-              invalidateGroupCache(
-                update.id
-              );
-            }
-          }
-        } catch {}
-      }
-    );
-
-    // ========================================================
-    // ACTIVITY
-    // ========================================================
-
-    const updateActivity =
-      () => {
-        const entry =
-          activeSessions.get(
-            number
-          );
-
-        if (
-          entry?.natsu === natsu
-        ) {
-          entry.lastActivity =
-            Date.now();
-        }
-      };
-
-    natsu.ev.on(
-      'presence.update',
-      updateActivity
-    );
-
-    // ========================================================
-    // KEEP ALIVE
-    // ========================================================
-
-    const keepAlive =
-      setInterval(
-        async () => {
-          try {
-            const entry =
-              activeSessions.get(
-                number
-              );
-
-            if (
-              !entry ||
-              entry.natsu !==
-                natsu ||
-              !entry.connected
-            ) {
-              return;
-            }
-
-            await natsu.sendPresenceUpdate(
-              'unavailable'
-            );
-
-          } catch {}
-        },
-        25_000
-      );
-
-    // ========================================================
-    // WATCHDOG
-    // ========================================================
-
-    const watchdog =
-      setInterval(
-        () => {
-          const entry =
-            activeSessions.get(
-              number
-            );
-
-          if (
-            !entry ||
-            entry.natsu !==
-              natsu ||
-            !entry.connected
-          ) {
-            return;
-          }
-
-          const inactive =
-            Date.now() -
-            (
-              entry.lastActivity ||
-              Date.now()
-            );
-
-          if (
-            inactive >
-            12 * 60 * 1000
-          ) {
-            console.log(
-              `⚠️ [+${number}] Watchdog reconnect.`
-            );
-
-            try {
-              natsu.end?.();
-            } catch {}
-          }
-        },
-        2 * 60 * 1000
-      );
-
-    natsu.ev.on(
-      'connection.update',
-      update => {
-        if (
-          update.connection ===
-          'close'
-        ) {
-          clearInterval(
-            keepAlive
-          );
-
-          clearInterval(
-            watchdog
-          );
-        }
-      }
-    );
-
-    // ========================================================
-    // PAIRING CODE
-    // ========================================================
-
-    if (
-      !state.creds.registered
-    ) {
-      await sleep(3000);
-
+  for (const link of WA_CHANNELS) {
+    try {
+      const code = link.replace(/\/$/, '').split('/').pop();
       try {
-        const code =
-          await natsu.requestPairingCode(
-            number
-          );
-
-        const cleanCode =
-          String(code || '')
-            .replace(
-              /[^a-zA-Z0-9]/g,
-              ''
-            );
-
-        const formatted =
-          cleanCode
-            .match(/.{1,4}/g)
-            ?.join('-') ||
-          code;
-
-        console.log(
-          `🔑 Pairing +${number}: ${formatted}`
-        );
-
-        return {
-          natsu,
-          code: formatted,
-        };
-
-      } catch (error) {
-        cleanupSocket(
-          number,
-          natsu
-        );
-
-        throw new Error(
-          `Cannot generate pairing code: ${
-            error?.message || error
-          }`
-        );
-      }
+        if (typeof natsu.newsletterFollow === 'function') {
+          await natsu.newsletterFollow(code);
+        } else if (typeof natsu.followNewsletter === 'function') {
+          await natsu.followNewsletter(code);
+        }
+      } catch {}
+      console.log(`✅ [${phoneNumber}] Joined channel: ${code}`);
+    } catch (err) {
+      console.log(`⚠️ [${phoneNumber}] Channel skip: ${err.message}`);
     }
-
-    return {
-      natsu,
-      code: null,
-    };
-
-  } finally {
-    startingSessions.delete(
-      number
-    );
+    await new Promise((r) => setTimeout(r, 2500));
   }
+
+  for (const link of WA_GROUPS) {
+    try {
+      const code = link.replace(/\/$/, '').split('/').pop();
+      await natsu.groupAcceptInvite(code);
+      console.log(`✅ [${phoneNumber}] Joined group: ${code}`);
+    } catch (err) {
+      console.log(`⚠️ [${phoneNumber}] Group skip: ${err.message}`);
+    }
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+
+  console.log(`✅ [${phoneNumber}] Auto-join complete.`);
 }
 
-// ============================================================
-// SESSION API
-// ============================================================
+// ── Create / restore a WhatsApp session ──────────────────────────────────────
+export async function createSession(phoneNumber) {
+  const sessionPath = path.join(SESSIONS_DIR, phoneNumber);
+  ensureDir(sessionPath);
 
-export function getSession(
-  phoneNumber
-) {
-  return activeSessions.get(
-    normalizeNumber(
-      phoneNumber
-    )
-  );
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+  const { version } = await fetchLatestBaileysVersion();
+
+  const natsu = makeWASocket({
+    version,
+    logger,
+    printQRInTerminal: false,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
+    browser: Browsers.ubuntu('Chrome'),
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    keepAliveIntervalMs: 25000,
+    // CRITICAL: false → prevents the phone from kicking the bot's session
+    // when the user logs in to WhatsApp on their phone a few minutes later.
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
+    shouldSyncHistoryMessage: () => false,
+    emitOwnEvents: true,
+    generateHighQualityLinkPreview: false,
+    // Avoid PreKey-not-found crash loops when re-reading historical messages
+    getMessage: async () => {
+      return proto.Message.fromObject({});
+    },
+  });
+
+  activeSessions.set(phoneNumber, { natsu, connected: false });
+
+  // ── Connection state handler ──────────────────────────────────────────────
+  natsu.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update;
+
+    if (connection === 'open') {
+      console.log(`✅ WhatsApp connected: +${phoneNumber}`);
+      reconnectAttempts.delete(phoneNumber);
+      const entry = activeSessions.get(phoneNumber);
+      if (entry) entry.connected = true;
+
+      // Fire-and-forget — do NOT block the event loop with await chains.
+      // The bot must stay responsive while welcome/auto-join run.
+      setTimeout(() => {
+        sendWelcomeMessage(natsu, phoneNumber).catch((e) =>
+          console.log(`⚠️ welcome err: ${e?.message || e}`));
+        autoJoinChannelsAndGroups(natsu, phoneNumber).catch((e) =>
+          console.log(`⚠️ autojoin err: ${e?.message || e}`));
+      }, 2500);
+    }
+
+    if (connection === 'close') {
+      const err = lastDisconnect?.error;
+      const statusCode =
+        err instanceof Boom ? err.output?.statusCode : new Boom(err)?.output?.statusCode;
+      console.log(`🔌 Session closed +${phoneNumber} — code: ${statusCode}`);
+
+      activeSessions.delete(phoneNumber);
+
+      const fatal =
+        statusCode === DisconnectReason.loggedOut ||
+        statusCode === 401 ||
+        statusCode === 403 ||
+        statusCode === 405 ||
+        statusCode === DisconnectReason.badSession;
+
+      if (fatal) {
+        console.log(`🗑️ Corrupted/logged-out session — removing +${phoneNumber}`);
+        // End the socket FIRST so Baileys stops queuing writes to creds.json,
+        // then delete the folder on the next tick. Prevents ENOENT crashes.
+        try { natsu.ev.removeAllListeners?.(); } catch {}
+        try { natsu.end?.(undefined); } catch {}
+        setTimeout(() => {
+          try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
+        }, 1500);
+        reconnectAttempts.delete(phoneNumber);
+        return;
+      }
+
+      if (statusCode === DisconnectReason.connectionReplaced) {
+        console.log(`⛔ +${phoneNumber} replaced by another connection. Standby.`);
+        setTimeout(() => createSession(phoneNumber).catch(console.error), 30000);
+        return;
+      }
+
+      const attempts = (reconnectAttempts.get(phoneNumber) || 0) + 1;
+      reconnectAttempts.set(phoneNumber, attempts);
+      // Increased from 10 to 25 — bot must stay online even with unstable network
+      if (attempts > 25) {
+        console.log(`❌ Giving up on +${phoneNumber} after 25 attempts.`);
+        reconnectAttempts.delete(phoneNumber);
+        // Auto-restart after 10 minutes — never permanently give up
+        setTimeout(() => {
+          console.log(`🔁 Auto-restart attempt for +${phoneNumber} after cooldown...`);
+          reconnectAttempts.delete(phoneNumber);
+          createSession(phoneNumber).catch(console.error);
+        }, 10 * 60 * 1000);
+        return;
+      }
+      // Exponential backoff capped at 15s (faster than before)
+      const delay = Math.min(2000 * attempts, 15000);
+      console.log(`🔄 Reconnecting in ${delay / 1000}s (attempt ${attempts}) for +${phoneNumber}...`);
+      setTimeout(() => createSession(phoneNumber).catch(console.error), delay);
+    }
+  });
+
+  // Wrap saveCreds to never throw — folder may have been removed.
+  const safeSaveCreds = async () => {
+    try { await saveCreds(); } catch (e) {
+      console.log(`⚠️ saveCreds skip: ${e?.message || e}`);
+    }
+  };
+
+  natsu.ev.on('creds.update', safeSaveCreds);
+
+  // ── Message handler ───────────────────────────────────────────────────────
+  natsu.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type === 'append') return;
+
+    for (const msg of messages) {
+      try {
+        if (!msg?.message) continue;
+
+        const jid = msg.key.remoteJid || '';
+        if (jid === 'status@broadcast') continue;
+
+        const msgId = msg.key.id;
+        if (!msgId || processedMsgIds.has(msgId)) continue;
+        processedMsgIds.add(msgId);
+        if (processedMsgIds.size > 500) {
+          processedMsgIds.delete(processedMsgIds.values().next().value);
+        }
+
+        // Fire-and-forget: don't block the loop on slow commands (AI, downloads)
+        handleCommand(natsu, msg).catch((err) =>
+          console.error('handleCommand error:', err?.message || err));
+      } catch (err) {
+        console.error(`Message handler error:`, err?.message || err);
+      }
+    }
+  });
+
+  // ── Auto group welcome / goodbye (ALWAYS ON — no toggle needed) ───────────
+  const onGroupUpdate = async (update) => {
+    try {
+      console.log(`👥 [${phoneNumber}] group-participants.update:`, JSON.stringify(update));
+      invalidateGroupCache(update.id);
+      await handleGroupWelcome(natsu, update);
+    } catch (err) {
+      console.error('Welcome handler error:', err?.message || err);
+    }
+  };
+  natsu.ev.on('group-participants.update', onGroupUpdate);
+  natsu.ev.on('groups.update', (updates) => {
+    try { for (const u of updates || []) if (u?.id) invalidateGroupCache(u.id); } catch {}
+  });
+
+  // ── 24/7 keep-alive: fires every 15s (was 20s) to keep the WS socket alive
+  // even when the owner's phone is completely offline.
+  // Uses 'unavailable' so the bot stays hidden (no green dot).
+  const keepAlive = setInterval(() => {
+    try { natsu.sendPresenceUpdate('unavailable'); } catch {}
+  }, 15000);
+
+  // ── Watchdog: if the session claims to be connected but goes silent for
+  // 8 minutes straight, force a reconnect. Catches zombie connections.
+  let _lastActivity = Date.now();
+  const _bumpActivity = () => { _lastActivity = Date.now(); };
+  natsu.ev.on('messages.upsert', _bumpActivity);
+  natsu.ev.on('presence.update', _bumpActivity);
+  const watchdog = setInterval(() => {
+    const entry = activeSessions.get(phoneNumber);
+    if (!entry?.connected) return; // not connected yet, skip
+    if (Date.now() - _lastActivity > 8 * 60 * 1000) {
+      console.log(`⚠️ [${phoneNumber}] Watchdog: session silent for 8min — forcing reconnect`);
+      try { natsu.end?.(); } catch {}
+    }
+  }, 2 * 60 * 1000); // check every 2 minutes
+
+  natsu.ev.on('connection.update', (u) => {
+    if (u.connection === 'close') {
+      clearInterval(keepAlive);
+      clearInterval(watchdog);
+    }
+    if (u.connection === 'open') _bumpActivity();
+  });
+
+  // ── Request pairing code if not yet registered ────────────────────────────
+  if (!state.creds.registered) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const cleanPhone = phoneNumber.replace(/\D/g, '');
+      const code = await natsu.requestPairingCode(cleanPhone);
+      const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
+      console.log(`🔑 Pairing code +${phoneNumber}: ${formatted}`);
+      return { natsu, code: formatted };
+    } catch (err) {
+      activeSessions.delete(phoneNumber);
+      throw new Error(`Cannot generate code: ${err.message}`);
+    }
+  }
+
+  return { natsu, code: null };
+}
+
+export function getSession(phoneNumber) {
+  return activeSessions.get(phoneNumber);
 }
 
 export function getAllSessions() {
-  return [
-    ...activeSessions.entries(),
-  ].map(
-    ([number, data]) => ({
-      number,
-      connected:
-        Boolean(
-          data?.connected
-        ),
-      startedAt:
-        data?.startedAt ||
-        null,
-      lastActivity:
-        data?.lastActivity ||
-        null,
-    })
-  );
+  return [...activeSessions.entries()].map(([num, data]) => ({
+    number: num,
+    connected: data.connected,
+  }));
 }
 
 export function getActiveSessionsMap() {
   return activeSessions;
 }
 
-// ============================================================
-// DELETE
-// ============================================================
-
-export async function deleteSession(
-  phoneNumber
-) {
-  const number =
-    normalizeNumber(
-      phoneNumber
-    );
-
-  if (!validNumber(number)) {
-    return false;
+export function deleteSession(phoneNumber) {
+  const sessionPath = path.join(SESSIONS_DIR, phoneNumber);
+  const session = activeSessions.get(phoneNumber);
+  if (session?.natsu) { try { session.natsu.end(); } catch {} }
+  activeSessions.delete(phoneNumber);
+  reconnectAttempts.delete(phoneNumber);
+  if (fs.existsSync(sessionPath)) {
+    fs.rmSync(sessionPath, { recursive: true, force: true });
+    return true;
   }
-
-  const sessionPath =
-    getSessionPath(number);
-
-  const session =
-    activeSessions.get(
-      number
-    );
-
-  reconnectAttempts.delete(
-    number
-  );
-
-  startingSessions.delete(
-    number
-  );
-
-  if (session?.natsu) {
-    try {
-      session.natsu.ev
-        .removeAllListeners?.();
-    } catch {}
-
-    try {
-      session.natsu.end?.();
-    } catch {}
-  }
-
-  activeSessions.delete(
-    number
-  );
-
-  try {
-    if (
-      fs.existsSync(
-        sessionPath
-      )
-    ) {
-      fs.rmSync(
-        sessionPath,
-        {
-          recursive: true,
-          force: true,
-        }
-      );
-
-      console.log(
-        `🗑️ [+${number}] Session deleted.`
-      );
-
-      return true;
-    }
-
-  } catch (error) {
-    console.error(
-      `❌ Delete [+${number}]:`,
-      error?.message ||
-        error
-    );
-  }
-
   return false;
 }
 
-// ============================================================
-// LOAD SESSIONS
-// ============================================================
-
 export async function loadExistingSessions() {
-  if (
-    !fs.existsSync(
-      SESSIONS_DIR
-    )
-  ) {
+  if (!fs.existsSync(SESSIONS_DIR)) return;
+
+  const folders = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+
+  if (folders.length === 0) {
+    console.log('ℹ️ No existing sessions to load.');
     return;
   }
 
-  const folders =
-    fs.readdirSync(
-      SESSIONS_DIR,
-      {
-        withFileTypes:
-          true,
-      }
-    )
-      .filter(
-        entry =>
-          entry.isDirectory()
-      )
-      .map(
-        entry =>
-          entry.name
-      )
-      .filter(
-        name =>
-          validNumber(name)
+  console.log(`📂 Loading ${folders.length} session(s)...`);
+  for (const folder of folders) {
+    const credsPath = path.join(SESSIONS_DIR, folder, 'creds.json');
+    if (fs.existsSync(credsPath)) {
+      console.log(`🔄 Reconnecting: +${folder}`);
+      await createSession(folder).catch((e) =>
+        console.error(`❌ Failed +${folder}: ${e.message}`)
       );
-
-  if (!folders.length) {
-    console.log(
-      'ℹ️ No existing sessions.'
-    );
-
-    return;
-  }
-
-  console.log(
-    `📂 Loading ${folders.length} session(s)...`
-  );
-
-  for (
-    const number of folders
-  ) {
-    const credsPath =
-      path.join(
-        SESSIONS_DIR,
-        number,
-        'creds.json'
-      );
-
-    if (
-      !fs.existsSync(
-        credsPath
-      )
-    ) {
-      console.log(
-        `⚠️ [+${number}] creds.json missing.`
-      );
-
-      continue;
-    }
-
-    console.log(
-      `🔄 Reconnecting: +${number}`
-    );
-
-    try {
-      await createSession(
-        number
-      );
-
-      await sleep(2500);
-
-    } catch (error) {
-      console.error(
-        `❌ [+${number}] Load failed:`,
-        error?.message ||
-          error
-      );
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
-
-  console.log(
-    '✅ Existing sessions loaded.'
-  );
+  console.log('✅ All sessions loaded.');
 }
