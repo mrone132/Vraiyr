@@ -1,41 +1,62 @@
 <!doctype html>
-
 <html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />  <title>KILLUA MD</title><meta
-name="description"
-content="Connectez votre numéro à KILLUA MD en générant un code de pairing WhatsApp."
-/>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>MINI KILLUA MD</title>
+
+  <meta
+    name="description"
+    content="Connectez votre numéro WhatsApp à MINI KILLUA MD avec un code de pairing."
+  >
+
+  <link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+  >
+
+  <link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+  >
+
   <link
     href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap"
     rel="stylesheet"
-  >  <style>
+  >
+
+  <style>
+
     :root {
       --bg: #050510;
       --bg-soft: #0a0a1a;
 
-      --card: rgba(15, 15, 35, 0.72);
-      --card-border: rgba(255, 255, 255, 0.09);
+      --card: rgba(15, 15, 35, .72);
+      --card-border: rgba(255, 255, 255, .09);
 
       --primary: #8b5cf6;
       --primary-light: #a78bfa;
-      --primary-glow: rgba(139, 92, 246, 0.42);
+      --primary-glow: rgba(139, 92, 246, .42);
 
       --cyan: #22d3ee;
       --cyan-light: #67e8f9;
-      --cyan-glow: rgba(34, 211, 238, 0.32);
+      --cyan-glow: rgba(34, 211, 238, .32);
 
       --text: #f8f7ff;
       --muted: #9292aa;
 
-      --input: rgba(4, 4, 15, 0.75);
+      --input: rgba(4, 4, 15, .75);
 
       --danger: #ff5f6d;
       --success: #22c55e;
+      --warning: #f59e0b;
     }
 
     * {
@@ -60,24 +81,33 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       overflow-x: hidden;
 
       color: var(--text);
-      font-family: "Plus Jakarta Sans", sans-serif;
+
+      font-family:
+        "Plus Jakarta Sans",
+        sans-serif;
 
       background:
         radial-gradient(
           circle at 50% -10%,
-          rgba(139, 92, 246, 0.24),
+          rgba(139, 92, 246, .24),
           transparent 45%
         ),
         radial-gradient(
           circle at 90% 80%,
-          rgba(34, 211, 238, 0.10),
+          rgba(34, 211, 238, .10),
           transparent 35%
         ),
-        linear-gradient(135deg, #03030a, #080817 55%, #04040d);
+        linear-gradient(
+          135deg,
+          #03030a,
+          #080817 55%,
+          #04040d
+        );
     }
 
     body::before {
       content: "";
+
       position: fixed;
       inset: 0;
 
@@ -85,27 +115,24 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       background-image:
         linear-gradient(
-          rgba(255,255,255,0.018) 1px,
+          rgba(255,255,255,.018) 1px,
           transparent 1px
         ),
         linear-gradient(
           90deg,
-          rgba(255,255,255,0.018) 1px,
+          rgba(255,255,255,.018) 1px,
           transparent 1px
         );
 
       background-size: 60px 60px;
 
-      mask-image: linear-gradient(
-        to bottom,
-        black,
-        transparent 85%
-      );
+      mask-image:
+        linear-gradient(
+          to bottom,
+          black,
+          transparent 85%
+        );
     }
-
-    /* =========================
-       SOCIAL MENU
-    ========================= */
 
     .top-social-container {
       position: absolute;
@@ -124,48 +151,60 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       border: 1px solid var(--card-border);
       border-radius: 14px;
 
-      background: rgba(13, 13, 30, 0.75);
+      background:
+        rgba(13,13,30,.75);
 
       color: var(--text);
 
-      font-family: "Space Grotesk", sans-serif;
+      font-family:
+        "Space Grotesk",
+        sans-serif;
+
       font-size: 12px;
       font-weight: 700;
 
-      letter-spacing: 0.04em;
+      letter-spacing: .04em;
 
       cursor: pointer;
 
       backdrop-filter: blur(18px);
 
-      box-shadow:
-        0 8px 30px rgba(0, 0, 0, 0.35);
-
-      transition: 0.25s ease;
+      transition: .25s ease;
     }
 
     .social-btn:hover {
-      border-color: var(--primary);
-      color: var(--primary-light);
+      border-color:
+        var(--primary);
 
-      transform: translateY(-2px);
+      color:
+        var(--primary-light);
+
+      transform:
+        translateY(-2px);
 
       box-shadow:
-        0 8px 30px rgba(0, 0, 0, 0.45),
-        0 0 20px var(--primary-glow);
-    }
-
-    .social-btn svg {
-      transition: transform 0.25s ease;
+        0 8px 30px
+        rgba(0,0,0,.45),
+        0 0 20px
+        var(--primary-glow);
     }
 
     .social-btn.open svg {
-      transform: rotate(180deg);
+      transform:
+        rotate(180deg);
+    }
+
+    .social-btn svg {
+      transition:
+        transform .25s ease;
     }
 
     .social-menu {
       position: absolute;
-      top: calc(100% + 9px);
+
+      top:
+        calc(100% + 9px);
+
       left: 0;
 
       width: 190px;
@@ -174,23 +213,26 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       display: flex;
       flex-direction: column;
+
       gap: 4px;
 
-      background: rgba(10, 10, 25, 0.94);
+      background:
+        rgba(10,10,25,.94);
 
-      border: 1px solid var(--card-border);
+      border:
+        1px solid
+        var(--card-border);
+
       border-radius: 15px;
 
-      backdrop-filter: blur(20px);
-
-      box-shadow:
-        0 20px 50px rgba(0,0,0,.55),
-        0 0 30px rgba(139,92,246,.08);
+      backdrop-filter:
+        blur(20px);
 
       opacity: 0;
       visibility: hidden;
 
-      transform: translateY(-8px);
+      transform:
+        translateY(-8px);
 
       transition:
         opacity .25s ease,
@@ -201,12 +243,15 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
     .social-menu.show {
       opacity: 1;
       visibility: visible;
-      transform: translateY(0);
+
+      transform:
+        translateY(0);
     }
 
     .social-link {
       display: flex;
       align-items: center;
+
       gap: 10px;
 
       padding: 11px 12px;
@@ -224,15 +269,15 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
     }
 
     .social-link:hover {
-      background: rgba(139, 92, 246, .12);
-      color: var(--cyan-light);
+      background:
+        rgba(139,92,246,.12);
 
-      transform: translateX(3px);
+      color:
+        var(--cyan-light);
+
+      transform:
+        translateX(3px);
     }
-
-    /* =========================
-       BACKGROUND GLOW
-    ========================= */
 
     .bg-glow {
       position: fixed;
@@ -243,7 +288,8 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       width: 650px;
       height: 650px;
 
-      transform: translate(-50%, -50%);
+      transform:
+        translate(-50%, -50%);
 
       background:
         radial-gradient(
@@ -260,10 +306,6 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       z-index: 0;
     }
 
-    /* =========================
-       CONTAINER
-    ========================= */
-
     .container {
       width: 100%;
       max-width: 450px;
@@ -276,10 +318,6 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       z-index: 1;
     }
 
-    /* =========================
-       EYEBROW
-    ========================= */
-
     .eyebrow {
       display: inline-flex;
       align-items: center;
@@ -289,33 +327,36 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       border-radius: 999px;
 
-      color: var(--cyan-light);
+      color:
+        var(--cyan-light);
 
-      background: rgba(34,211,238,.08);
+      background:
+        rgba(34,211,238,.08);
 
-      border: 1px solid rgba(34,211,238,.22);
+      border:
+        1px solid
+        rgba(34,211,238,.22);
 
-      font-family: "Space Grotesk", sans-serif;
+      font-family:
+        "Space Grotesk",
+        sans-serif;
+
       font-size: 10px;
       font-weight: 700;
 
       letter-spacing: .2em;
       text-transform: uppercase;
-
-      box-shadow:
-        0 0 20px rgba(34,211,238,.05);
     }
-
-    /* =========================
-       TITLE
-    ========================= */
 
     h1 {
       margin-bottom: 12px;
 
-      font-family: "Space Grotesk", sans-serif;
+      font-family:
+        "Space Grotesk",
+        sans-serif;
 
-      font-size: clamp(34px, 8vw, 50px);
+      font-size:
+        clamp(34px,8vw,50px);
 
       font-weight: 700;
 
@@ -337,10 +378,8 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       -webkit-background-clip: text;
       background-clip: text;
 
-      -webkit-text-fill-color: transparent;
-
-      filter:
-        drop-shadow(0 0 18px rgba(139,92,246,.20));
+      -webkit-text-fill-color:
+        transparent;
     }
 
     .tagline {
@@ -357,10 +396,6 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       text-align: center;
     }
 
-    /* =========================
-       CARD
-    ========================= */
-
     .card {
       width: 100%;
 
@@ -375,15 +410,18 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
           rgba(9,9,24,.70)
         );
 
-      border: 1px solid var(--card-border);
+      border:
+        1px solid
+        var(--card-border);
 
       border-radius: 26px;
 
-      backdrop-filter: blur(22px);
+      backdrop-filter:
+        blur(22px);
 
       box-shadow:
-        0 25px 70px rgba(0,0,0,.50),
-        inset 0 1px 0 rgba(255,255,255,.035);
+        0 25px 70px
+        rgba(0,0,0,.50);
     }
 
     .card::before {
@@ -405,8 +443,6 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
           var(--cyan),
           transparent
         );
-
-      opacity: .8;
     }
 
     .card::after {
@@ -430,20 +466,15 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       color: #050510;
 
-      font-family: "Space Grotesk", sans-serif;
+      font-family:
+        "Space Grotesk",
+        sans-serif;
 
       font-size: 9px;
       font-weight: 800;
 
       letter-spacing: .12em;
-
-      box-shadow:
-        0 5px 20px var(--primary-glow);
     }
-
-    /* =========================
-       FORM
-    ========================= */
 
     label {
       display: block;
@@ -452,7 +483,9 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       color: var(--muted);
 
-      font-family: "Space Mono", monospace;
+      font-family:
+        "Space Mono",
+        monospace;
 
       font-size: 10px;
       font-weight: 700;
@@ -462,11 +495,7 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       text-transform: uppercase;
     }
 
-    .input-wrapper {
-      position: relative;
-    }
-
-    input[type="text"] {
+    input {
       width: 100%;
 
       padding: 16px 17px;
@@ -475,48 +504,45 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       outline: none;
 
-      background: var(--input);
+      background:
+        var(--input);
 
-      border: 1px solid rgba(255,255,255,.08);
+      border:
+        1px solid
+        rgba(255,255,255,.08);
 
-      color: var(--text);
+      color:
+        var(--text);
 
-      font-family: "Space Mono", monospace;
+      font-family:
+        "Space Mono",
+        monospace;
 
       font-size: 15px;
 
       transition: .25s ease;
     }
 
-    input[type="text"]:focus {
-      border-color: var(--primary);
-
-      background: rgba(4,4,15,.9);
+    input:focus {
+      border-color:
+        var(--primary);
 
       box-shadow:
-        0 0 0 3px rgba(139,92,246,.08),
-        0 0 25px var(--primary-glow);
+        0 0 0 3px
+        rgba(139,92,246,.08);
     }
 
-    input[type="text"]::placeholder {
+    input::placeholder {
       color: #55556b;
     }
 
     .hint {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-
       margin-top: 8px;
 
       color: #72728a;
 
       font-size: 11px;
     }
-
-    /* =========================
-       BUTTON
-    ========================= */
 
     button.kickoff {
       width: 100%;
@@ -538,7 +564,9 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       color: white;
 
-      font-family: "Space Grotesk", sans-serif;
+      font-family:
+        "Space Grotesk",
+        sans-serif;
 
       font-size: 14px;
       font-weight: 700;
@@ -549,73 +577,74 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       cursor: pointer;
 
-      box-shadow:
-        0 8px 25px var(--primary-glow);
-
       transition: .25s ease;
     }
 
     button.kickoff:hover {
-      transform: translateY(-2px);
+      transform:
+        translateY(-2px);
 
-      box-shadow:
-        0 12px 35px var(--primary-glow),
-        0 0 20px var(--cyan-glow);
-
-      filter: brightness(1.08);
-    }
-
-    button.kickoff:active {
-      transform: translateY(0);
+      filter:
+        brightness(1.08);
     }
 
     button.kickoff:disabled {
       opacity: .5;
-      cursor: wait;
-      transform: none;
-      box-shadow: none;
-    }
 
-    /* =========================
-       ERROR
-    ========================= */
+      cursor: wait;
+
+      transform: none;
+    }
 
     .error {
       display: none;
 
       margin-top: 16px;
+
       padding: 12px 15px;
 
       border-radius: 12px;
 
-      background: rgba(255,95,109,.08);
+      background:
+        rgba(255,95,109,.08);
 
-      border: 1px solid rgba(255,95,109,.22);
+      border:
+        1px solid
+        rgba(255,95,109,.22);
 
-      color: var(--danger);
+      color:
+        var(--danger);
 
       font-size: 12px;
 
       text-align: center;
     }
 
-    /* =========================
-       SCOREBOARD
-    ========================= */
-
     .scoreboard {
       display: none;
 
       margin-top: 28px;
+
       padding-top: 24px;
 
-      border-top: 1px solid var(--card-border);
+      border-top:
+        1px solid
+        var(--card-border);
     }
 
-    .scoreboard .label {
+    .label {
       margin-bottom: 15px;
 
+      color:
+        var(--muted);
+
       text-align: center;
+
+      font-family:
+        "Space Mono",
+        monospace;
+
+      font-size: 10px;
     }
 
     .tiles {
@@ -646,18 +675,19 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
           rgba(34,211,238,.06)
         );
 
-      border: 1px solid rgba(139,92,246,.35);
+      border:
+        1px solid
+        rgba(139,92,246,.35);
 
-      color: var(--primary-light);
+      color:
+        var(--primary-light);
 
-      font-family: "Space Grotesk", sans-serif;
+      font-family:
+        "Space Grotesk",
+        sans-serif;
 
       font-size: 21px;
       font-weight: 700;
-
-      box-shadow:
-        0 5px 15px rgba(0,0,0,.3),
-        0 0 15px rgba(139,92,246,.06);
 
       opacity: 0;
 
@@ -674,11 +704,10 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
     .tile.dash {
       width: 12px;
 
-      background: transparent;
+      background:
+        transparent;
 
       border: none;
-
-      color: var(--muted);
 
       box-shadow: none;
     }
@@ -693,10 +722,6 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       }
     }
 
-    /* =========================
-       COPY
-    ========================= */
-
     .copy-btn {
       display: flex;
       align-items: center;
@@ -710,67 +735,25 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       border-radius: 10px;
 
-      background: rgba(255,255,255,.035);
+      background:
+        rgba(255,255,255,.035);
 
-      border: 1px solid var(--card-border);
+      border:
+        1px solid
+        var(--card-border);
 
-      color: var(--text);
-
-      font-family: "Plus Jakarta Sans", sans-serif;
+      color:
+        var(--text);
 
       font-size: 12px;
       font-weight: 600;
 
       cursor: pointer;
-
-      transition: .2s ease;
     }
-
-    .copy-btn:hover {
-      color: var(--cyan-light);
-
-      border-color: var(--cyan);
-
-      background: rgba(34,211,238,.07);
-
-      box-shadow:
-        0 0 18px rgba(34,211,238,.10);
-    }
-
-    /* =========================
-       STEPS
-    ========================= */
-
-    .steps {
-      margin-top: 24px;
-
-      padding-top: 20px;
-
-      border-top: 1px dashed var(--card-border);
-    }
-
-    .steps ol {
-      margin: 0;
-
-      padding-left: 20px;
-
-      color: var(--muted);
-
-      font-size: 12px;
-
-      line-height: 1.85;
-    }
-
-    .steps strong {
-      color: var(--text);
-    }
-
-    /* =========================
-       STATUS
-    ========================= */
 
     .status-row {
       display: flex;
+
       align-items: center;
       justify-content: center;
 
@@ -778,9 +761,12 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       margin-top: 20px;
 
-      color: var(--muted);
+      color:
+        var(--muted);
 
-      font-family: "Space Mono", monospace;
+      font-family:
+        "Space Mono",
+        monospace;
 
       font-size: 11px;
     }
@@ -791,19 +777,37 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
       border-radius: 50%;
 
-      background: var(--cyan);
+      background:
+        var(--cyan);
 
       box-shadow:
-        0 0 10px var(--cyan);
+        0 0 10px
+        var(--cyan);
 
-      animation: pulse 1.4s ease-in-out infinite;
+      animation:
+        pulse 1.4s
+        ease-in-out
+        infinite;
     }
 
     .dot.connected {
-      background: var(--success);
+      background:
+        var(--success);
 
       box-shadow:
-        0 0 10px var(--success);
+        0 0 10px
+        var(--success);
+
+      animation: none;
+    }
+
+    .dot.expired {
+      background:
+        var(--danger);
+
+      box-shadow:
+        0 0 10px
+        var(--danger);
 
       animation: none;
     }
@@ -820,16 +824,56 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
       }
     }
 
-    /* =========================
-       FOOTER
-    ========================= */
+    .timer {
+      margin-top: 10px;
+
+      color:
+        var(--muted);
+
+      font-family:
+        "Space Mono",
+        monospace;
+
+      font-size: 10px;
+
+      text-align: center;
+    }
+
+    .steps {
+      margin-top: 24px;
+
+      padding-top: 20px;
+
+      border-top:
+        1px dashed
+        var(--card-border);
+    }
+
+    .steps ol {
+      padding-left: 20px;
+
+      color:
+        var(--muted);
+
+      font-size: 12px;
+
+      line-height: 1.85;
+    }
+
+    .steps strong {
+      color:
+        var(--text);
+    }
 
     footer {
       margin-top: 35px;
 
-      color: #66667d;
+      color:
+        #66667d;
 
-      font-family: "Space Mono", monospace;
+      font-family:
+        "Space Mono",
+        monospace;
 
       font-size: 10px;
 
@@ -837,599 +881,791 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
     }
 
     footer .gold {
-      color: var(--primary-light);
+      color:
+        var(--primary-light);
 
       font-weight: 700;
     }
 
-    /* =========================
-       MOBILE
-    ========================= */
-
-    @media (max-width: 440px) {
+    @media(max-width:440px) {
 
       body {
         padding-top: 75px;
       }
 
-      .top-social-container {
-        top: 15px;
-        left: 15px;
-      }
-
       .card {
-        padding: 27px 20px;
-        border-radius: 22px;
+        padding:
+          27px 20px;
+
+        border-radius:
+          22px;
       }
 
       .tile {
         width: 32px;
         height: 42px;
+
         font-size: 18px;
       }
 
       h1 {
         font-size: 36px;
       }
-
-      .tagline {
-        font-size: 12px;
-      }
     }
-  </style></head><body>  <!-- =========================
-       SOCIAL MENU
-  ========================= -->  <div class="top-social-container"><button class="social-btn" id="socialBtn">
 
-  <span>Rejoignez-nous</span>
+  </style>
+</head>
 
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2.5"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  >
-    <path d="m6 9 6 6 6-6"/>
-  </svg>
+<body>
 
-</button>
+  <!-- SOCIAL -->
 
-<div class="social-menu" id="socialMenu">
-
-  <a
-    href="https://tiktok.com/@cabrino4"
-    target="_blank"
-    rel="noopener noreferrer"
-    class="social-link"
-  >
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/>
-    </svg>
-
-    TikTok
-  </a>
-
-  <a
-    href="https://t.me/cabrinox"
-    target="_blank"
-    rel="noopener noreferrer"
-    class="social-link"
-  >
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path d="m15 10-4 4 6 6 4-16-18 7 4 2 2 6 3-4"/>
-    </svg>
-
-    Telegram
-  </a>
-
-  <a
-    href="https://whatsapp.com/channel/0029VbCHB1eDjiOUGG4OCS2t"
-    target="_blank"
-    rel="noopener noreferrer"
-    class="social-link"
-  >
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21"/>
-      <path d="M9 10a.5.5 0 1 0 1 0V9a.5.5 0 0 0-1 0v1a5 5 0 0 0 5 5h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1"/>
-    </svg>
-
-    WhatsApp
-  </a>
-
-</div>
-
-  </div>  <div class="bg-glow" aria-hidden="true"></div>  <!-- =========================
-       MAIN
-  ========================= -->  <main class="container"><div class="eyebrow">
-  ⚡ KILLUA MD SYSTEM
-</div>
-
-<h1>
-  MINI <span>KILLUA</span> MD
-</h1>
-
-<p class="tagline">
-  Entrez votre numéro WhatsApp, recevez votre code de pairing
-  et connectez votre appareil rapidement.
-</p>
-
-<!-- =========================
-     CARD
-========================= -->
-
-<div class="card">
-
-  <label for="phone">
-    Numéro WhatsApp (avec indicatif)
-  </label>
-
-  <div class="input-wrapper">
-
-    <input
-      type="text"
-      id="phone"
-      placeholder="ex : 243XXXXXXXX"
-      inputmode="numeric"
-      autocomplete="tel"
-    />
-
-  </div>
-
-  <p class="hint">
-    ✦ Indicatif pays + numéro sans le signe +.
-  </p>
-
-  <button
-    class="kickoff"
-    id="pairBtn"
-  >
-    Générer le code
-  </button>
-
-  <div
-    class="error"
-    id="errorBox"
-  ></div>
-
-  <!-- CODE -->
-
-  <div
-    class="scoreboard"
-    id="scoreboard"
-  >
-
-    <div class="label">
-      Votre code de pairing
-    </div>
-
-    <div
-      class="tiles"
-      id="tiles"
-    ></div>
+  <div class="top-social-container">
 
     <button
-      class="copy-btn"
-      id="copyBtn"
+      class="social-btn"
+      id="socialBtn"
     >
+      <span>Rejoignez-nous</span>
 
       <svg
-        width="16"
-        height="16"
+        width="14"
+        height="14"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+        stroke-width="2.5"
       >
-        <rect
-          x="9"
-          y="9"
-          width="13"
-          height="13"
-          rx="2"
-        ></rect>
-
-        <path
-          d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-        ></path>
+        <path d="m6 9 6 6 6-6"/>
       </svg>
-
-      Copier le code
-
     </button>
 
-    <div class="status-row">
+    <div
+      class="social-menu"
+      id="socialMenu"
+    >
 
-      <span
-        class="dot"
-        id="statusDot"
-      ></span>
+      <a
+        href="https://tiktok.com/@cabrino4"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="social-link"
+      >
+        TikTok
+      </a>
 
-      <span id="statusText">
-        En attente de connexion…
-      </span>
+      <a
+        href="https://t.me/cabrinox"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="social-link"
+      >
+        Telegram
+      </a>
+
+      <a
+        href="https://whatsapp.com/channel/0029VbCHB1eDjiOUGG4OCS2t"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="social-link"
+      >
+        WhatsApp
+      </a>
 
     </div>
 
   </div>
 
-  <!-- STEPS -->
+  <div
+    class="bg-glow"
+    aria-hidden="true"
+  ></div>
 
-  <div class="steps">
+  <main class="container">
 
-    <ol>
+    <div class="eyebrow">
+      ⚡ KILLUA MD SYSTEM
+    </div>
 
-      <li>
-        Ouvrez <strong>WhatsApp</strong>
-        → Paramètres
-        → <strong>Appareils connectés</strong>
-      </li>
+    <h1>
+      MINI <span>KILLUA</span> MD
+    </h1>
 
-      <li>
-        Appuyez sur
-        <strong>Connecter un appareil</strong>
-        → <strong>Se connecter avec un numéro</strong>
-      </li>
+    <p class="tagline">
+      Entrez votre numéro WhatsApp,
+      recevez votre code de pairing
+      et connectez votre appareil rapidement.
+    </p>
 
-      <li>
-        Entrez le code affiché ci-dessus
-        avant qu'il n'expire.
-      </li>
+    <div class="card">
 
-    </ol>
+      <label for="phone">
+        Numéro WhatsApp
+      </label>
 
-  </div>
+      <input
+        type="text"
+        id="phone"
+        placeholder="ex : 243XXXXXXXX"
+        inputmode="numeric"
+        autocomplete="tel"
+      >
 
-</div>
+      <p class="hint">
+        ✦ Indicatif pays + numéro sans le signe +.
+      </p>
 
-<footer>
-  Développé par
-  <span class="gold">KILLUA MODS</span>
-  — Propulsé par
-  <span class="gold">KILLUA MODS</span>
-</footer>
+      <button
+        class="kickoff"
+        id="pairBtn"
+      >
+        Générer le code
+      </button>
 
-  </main>  <!-- =========================
-       JAVASCRIPT
-  ========================= -->  <script>
+      <div
+        class="error"
+        id="errorBox"
+      ></div>
 
-    /* =========================
-       SOCIAL MENU
-    ========================= */
+      <div
+        class="scoreboard"
+        id="scoreboard"
+      >
+
+        <div class="label">
+          Votre code de pairing
+        </div>
+
+        <div
+          class="tiles"
+          id="tiles"
+        ></div>
+
+        <button
+          class="copy-btn"
+          id="copyBtn"
+        >
+          📋 Copier le code
+        </button>
+
+        <div class="status-row">
+
+          <span
+            class="dot"
+            id="statusDot"
+          ></span>
+
+          <span id="statusText">
+            En attente de connexion…
+          </span>
+
+        </div>
+
+        <div
+          class="timer"
+          id="timer"
+        ></div>
+
+      </div>
+
+      <div class="steps">
+
+        <ol>
+
+          <li>
+            Ouvrez
+            <strong>WhatsApp</strong>
+            → Paramètres
+            → <strong>Appareils connectés</strong>
+          </li>
+
+          <li>
+            Appuyez sur
+            <strong>Connecter un appareil</strong>
+            →
+            <strong>Se connecter avec un numéro</strong>
+          </li>
+
+          <li>
+            Entrez le code affiché
+            avant son expiration.
+          </li>
+
+        </ol>
+
+      </div>
+
+    </div>
+
+    <footer>
+      Développé par
+      <span class="gold">
+        KILLUA MODS
+      </span>
+      —
+      Propulsé par
+      <span class="gold">
+        KILLUA MODS
+      </span>
+    </footer>
+
+  </main>
+
+  <script>
+
+    // ========================================================
+    // SOCIAL
+    // ========================================================
 
     const socialBtn =
-      document.getElementById("socialBtn");
+      document.getElementById(
+        "socialBtn"
+      );
 
     const socialMenu =
-      document.getElementById("socialMenu");
+      document.getElementById(
+        "socialMenu"
+      );
 
-    socialBtn.addEventListener("click", (e) => {
+    socialBtn.addEventListener(
+      "click",
+      event => {
+        event.stopPropagation();
 
-      e.stopPropagation();
+        socialBtn.classList.toggle(
+          "open"
+        );
 
-      socialBtn.classList.toggle("open");
+        socialMenu.classList.toggle(
+          "show"
+        );
+      }
+    );
 
-      socialMenu.classList.toggle("show");
+    document.addEventListener(
+      "click",
+      () => {
+        socialBtn.classList.remove(
+          "open"
+        );
 
-    });
+        socialMenu.classList.remove(
+          "show"
+        );
+      }
+    );
 
-    document.addEventListener("click", () => {
-
-      socialBtn.classList.remove("open");
-
-      socialMenu.classList.remove("show");
-
-    });
-
-
-    /* =========================
-       PAIRING SYSTEM
-    ========================= */
+    // ========================================================
+    // ELEMENTS
+    // ========================================================
 
     const phoneInput =
-      document.getElementById("phone");
+      document.getElementById(
+        "phone"
+      );
 
     const pairBtn =
-      document.getElementById("pairBtn");
+      document.getElementById(
+        "pairBtn"
+      );
 
     const errorBox =
-      document.getElementById("errorBox");
+      document.getElementById(
+        "errorBox"
+      );
 
     const scoreboard =
-      document.getElementById("scoreboard");
+      document.getElementById(
+        "scoreboard"
+      );
 
-    const tilesEl =
-      document.getElementById("tiles");
+    const tiles =
+      document.getElementById(
+        "tiles"
+      );
 
     const copyBtn =
-      document.getElementById("copyBtn");
+      document.getElementById(
+        "copyBtn"
+      );
 
     const statusDot =
-      document.getElementById("statusDot");
+      document.getElementById(
+        "statusDot"
+      );
 
     const statusText =
-      document.getElementById("statusText");
+      document.getElementById(
+        "statusText"
+      );
 
+    const timer =
+      document.getElementById(
+        "timer"
+      );
 
     let currentNumber = null;
     let currentCode = null;
+
     let pollTimer = null;
+    let countdownTimer = null;
 
+    let expiresAt = 0;
 
-    function showError(msg) {
+    // ========================================================
+    // ERROR
+    // ========================================================
 
-      errorBox.textContent = msg;
+    function showError(message) {
+      errorBox.textContent =
+        message;
 
-      errorBox.style.display = "block";
-
+      errorBox.style.display =
+        "block";
     }
-
 
     function hideError() {
-
-      errorBox.style.display = "none";
-
+      errorBox.style.display =
+        "none";
     }
 
+    // ========================================================
+    // RESET
+    // ========================================================
 
-    /* =========================
-       DISPLAY CODE
-    ========================= */
+    function stopTimers() {
+      if (pollTimer) {
+        clearInterval(
+          pollTimer
+        );
+
+        pollTimer = null;
+      }
+
+      if (countdownTimer) {
+        clearInterval(
+          countdownTimer
+        );
+
+        countdownTimer = null;
+      }
+    }
+
+    function resetState() {
+      stopTimers();
+
+      currentNumber = null;
+      currentCode = null;
+
+      expiresAt = 0;
+
+      tiles.innerHTML = "";
+
+      scoreboard.style.display =
+        "none";
+
+      timer.textContent = "";
+
+      statusDot.className =
+        "dot";
+
+      statusText.textContent =
+        "En attente de connexion…";
+    }
+
+    // ========================================================
+    // RENDER CODE
+    // ========================================================
 
     function renderCode(code) {
-
-      tilesEl.innerHTML = "";
+      tiles.innerHTML = "";
 
       let delay = 0;
 
-      for (const ch of code) {
+      for (
+        const character of String(code)
+      ) {
 
         const tile =
-          document.createElement("div");
+          document.createElement(
+            "div"
+          );
 
-        if (ch === "-") {
+        tile.className =
+          character === "-"
+            ? "tile dash"
+            : "tile";
 
-          tile.className = "tile dash";
-
-          tile.textContent = "-";
-
-        } else {
-
-          tile.className = "tile";
-
-          tile.textContent = ch;
-
-        }
+        tile.textContent =
+          character;
 
         tile.style.animationDelay =
           `${delay}ms`;
 
         delay += 50;
 
-        tilesEl.appendChild(tile);
-
+        tiles.appendChild(
+          tile
+        );
       }
 
-      scoreboard.style.display = "block";
+      scoreboard.style.display =
+        "block";
     }
 
+    // ========================================================
+    // COUNTDOWN
+    // ========================================================
 
-    /* =========================
-       REQUEST PAIRING
-    ========================= */
+    function startCountdown(seconds) {
+      expiresAt =
+        Date.now() +
+        Number(seconds) * 1000;
+
+      if (countdownTimer) {
+        clearInterval(
+          countdownTimer
+        );
+      }
+
+      function update() {
+
+        const remaining =
+          Math.max(
+            0,
+            Math.ceil(
+              (
+                expiresAt -
+                Date.now()
+              ) / 1000
+            )
+          );
+
+        if (
+          remaining <= 0
+        ) {
+
+          timer.textContent =
+            "Code expiré.";
+
+          statusDot.className =
+            "dot expired";
+
+          statusText.textContent =
+            "Code expiré — générez un nouveau code.";
+
+          clearInterval(
+            countdownTimer
+          );
+
+          countdownTimer = null;
+
+          return;
+        }
+
+        const minutes =
+          Math.floor(
+            remaining / 60
+          );
+
+        const secondsLeft =
+          remaining % 60;
+
+        timer.textContent =
+          `⏳ Expire dans ${minutes}:${String(secondsLeft).padStart(2, "0")}`;
+      }
+
+      update();
+
+      countdownTimer =
+        setInterval(
+          update,
+          1000
+        );
+    }
+
+    // ========================================================
+    // REQUEST PAIRING
+    // ========================================================
 
     async function requestPairing() {
 
       hideError();
 
-      const raw =
-        phoneInput.value.replace(/\D/g, "");
+      const number =
+        phoneInput.value
+          .replace(/\D/g, "");
 
-      if (!raw || raw.length < 8) {
-
+      if (
+        !number ||
+        number.length < 8 ||
+        number.length > 15
+      ) {
         showError(
-          "Merci d'entrer un numéro valide, indicatif compris."
+          "Entre un numéro international valide sans le +."
         );
 
         return;
       }
 
-      pairBtn.disabled = true;
+      stopTimers();
+
+      pairBtn.disabled =
+        true;
 
       pairBtn.textContent =
-        "Génération en cours…";
+        "Génération…";
 
-      scoreboard.style.display = "none";
-
-      clearInterval(pollTimer);
+      scoreboard.style.display =
+        "none";
 
       try {
 
-        const res =
-          await fetch("/api/pair", {
+        const response =
+          await fetch(
+            "/api/pair",
+            {
+              method:
+                "POST",
 
-            method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
 
-            headers: {
-              "Content-Type":
-                "application/json"
-            },
-
-            body: JSON.stringify({
-              number: raw
-            })
-
-          });
-
-        const data =
-          await res.json();
-
-        if (!res.ok || !data.ok) {
-
-          showError(
-            data.error ||
-            "Impossible de générer le code. Réessayez."
+              body:
+                JSON.stringify({
+                  number
+                })
+            }
           );
 
-          pairBtn.disabled = false;
+        let data;
 
-          pairBtn.textContent =
-            "Générer le code";
-
-          return;
+        try {
+          data =
+            await response.json();
+        } catch {
+          throw new Error(
+            "Réponse invalide du serveur."
+          );
         }
 
-        currentNumber = data.number;
+        if (
+          !response.ok ||
+          !data.ok
+        ) {
+          throw new Error(
+            data.error ||
+            "Impossible de générer le code."
+          );
+        }
 
-        currentCode = data.code;
+        currentNumber =
+          data.number;
 
-        renderCode(data.code);
+        currentCode =
+          data.code;
 
-        statusDot.className = "dot";
+        renderCode(
+          currentCode
+        );
+
+        statusDot.className =
+          "dot";
 
         statusText.textContent =
-          "En attente de connexion…";
+          data.reused
+            ? "Code existant — en attente…"
+            : "En attente de connexion…";
+
+        if (
+          data.expiresIn
+        ) {
+          startCountdown(
+            data.expiresIn
+          );
+        }
 
         startPolling();
 
-      } catch (err) {
+      } catch (error) {
 
         showError(
-          "Erreur réseau. Vérifiez votre connexion et réessayez."
+          error?.message ||
+          "Erreur réseau."
         );
 
       } finally {
 
-        pairBtn.disabled = false;
+        pairBtn.disabled =
+          false;
 
         pairBtn.textContent =
           "Générer le code";
-
       }
-
     }
 
+    // ========================================================
+    // STATUS
+    // ========================================================
 
-    /* =========================
-       STATUS POLLING
-    ========================= */
+    async function checkStatus() {
+
+      if (!currentNumber) {
+        return;
+      }
+
+      try {
+
+        const response =
+          await fetch(
+            `/api/status/${currentNumber}`,
+            {
+              cache: "no-store"
+            }
+          );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data =
+          await response.json();
+
+        if (
+          !data.ok
+        ) {
+          return;
+        }
+
+        // Connected
+        if (
+          data.connected
+        ) {
+
+          statusDot.className =
+            "dot connected";
+
+          statusText.textContent =
+            "Connecté ✓";
+
+          timer.textContent =
+            "Session WhatsApp active.";
+
+          stopTimers();
+
+          return;
+        }
+
+        // Code expired
+        if (
+          data.pairingPending ===
+            false &&
+          data.expiresIn === 0
+        ) {
+
+          statusDot.className =
+            "dot expired";
+
+          statusText.textContent =
+            "Code expiré.";
+
+          timer.textContent =
+            "Générez un nouveau code.";
+
+          if (pollTimer) {
+            clearInterval(
+              pollTimer
+            );
+
+            pollTimer = null;
+          }
+
+          return;
+        }
+
+        // Still waiting
+        statusDot.className =
+          "dot";
+
+        statusText.textContent =
+          "En attente de connexion…";
+
+      } catch {
+        // Ignore temporary network errors
+      }
+    }
 
     function startPolling() {
 
+      stopPollingOnly();
+
+      checkStatus();
+
       pollTimer =
-        setInterval(async () => {
-
-          if (!currentNumber) return;
-
-          try {
-
-            const res =
-              await fetch(
-                `/api/status/${currentNumber}`
-              );
-
-            const data =
-              await res.json();
-
-            if (
-              data.ok &&
-              data.connected
-            ) {
-
-              statusDot.classList.add(
-                "connected"
-              );
-
-              statusText.textContent =
-                "Connecté ✓";
-
-              clearInterval(
-                pollTimer
-              );
-
-            }
-
-          } catch {}
-
-        }, 4000);
-
+        setInterval(
+          checkStatus,
+          4000
+        );
     }
 
+    function stopPollingOnly() {
 
-    /* =========================
-       COPY CODE
-    ========================= */
+      if (pollTimer) {
+        clearInterval(
+          pollTimer
+        );
+
+        pollTimer = null;
+      }
+    }
+
+    // ========================================================
+    // COPY
+    // ========================================================
 
     copyBtn.addEventListener(
       "click",
       async () => {
 
-        if (!currentCode) return;
+        if (!currentCode) {
+          return;
+        }
 
         try {
 
           await navigator.clipboard
-            .writeText(currentCode);
+            .writeText(
+              currentCode
+            );
 
-          const originalHTML =
-            copyBtn.innerHTML;
+          const original =
+            copyBtn.textContent;
 
-          copyBtn.innerHTML =
-            "✓ Copié !";
+          copyBtn.textContent =
+            "✓ Code copié !";
 
-          setTimeout(() => {
-
-            copyBtn.innerHTML =
-              originalHTML;
-
-          }, 1800);
+          setTimeout(
+            () => {
+              copyBtn.textContent =
+                original;
+            },
+            1800
+          );
 
         } catch {
 
           showError(
             "Impossible de copier automatiquement le code."
           );
-
         }
-
       }
     );
 
-
-    /* =========================
-       EVENTS
-    ========================= */
+    // ========================================================
+    // EVENTS
+    // ========================================================
 
     pairBtn.addEventListener(
       "click",
@@ -1438,16 +1674,105 @@ content="Connectez votre numéro à KILLUA MD en générant un code de pairing W
 
     phoneInput.addEventListener(
       "keydown",
-      (e) => {
+      event => {
 
-        if (e.key === "Enter") {
-
+        if (
+          event.key === "Enter"
+        ) {
           requestPairing();
-
         }
-
       }
     );
 
-  </script></body>
+    phoneInput.addEventListener(
+      "input",
+      () => {
+
+        phoneInput.value =
+          phoneInput.value.replace(
+            /\D/g,
+            ""
+          );
+      }
+    );
+
+    // ========================================================
+    // LOAD BOT INFO
+    // ========================================================
+
+    async function loadBotInfo() {
+
+      try {
+
+        const response =
+          await fetch(
+            "/api/info",
+            {
+              cache: "no-store"
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !data.ok
+        ) {
+          return;
+        }
+
+        if (
+          data.name
+        ) {
+          document.title =
+            data.name;
+        }
+
+        const title =
+          document.querySelector(
+            "h1"
+          );
+
+        if (
+          title &&
+          data.name
+        ) {
+          title.innerHTML =
+            `MINI <span>${escapeHtml(data.name.replace(/MD$/i, "").trim())}</span> MD`;
+        }
+
+      } catch {
+        // Default branding remains active
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(
+          /&/g,
+          "&amp;"
+        )
+        .replace(
+          /</g,
+          "&lt;"
+        )
+        .replace(
+          />/g,
+          "&gt;"
+        )
+        .replace(
+          /"/g,
+          "&quot;"
+        )
+        .replace(
+          /'/g,
+          "&#039;"
+        );
+    }
+
+    loadBotInfo();
+
+  </script>
+
+</body>
 </html>
