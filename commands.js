@@ -2935,404 +2935,193 @@ pendant la récupération de l'image.
       }
 
       // ═════════════════════════════════════════════════════════════════════
-      // DOWNLOADER V3 — YouTube / Play / Song / Video
-      // ═════════════════════════════════════════════════════════════════════
-      // IMPORTANT:
-      // - .song  = recherche d'une chanson -> AUDIO uniquement
-      // - .play  = recherche YouTube/titre -> AUDIO uniquement
-      // - .yta / .ytmp3 = URL YouTube -> AUDIO uniquement
-      // - .yt / .ytv / .video / .mp4 = URL ou recherche -> VIDEO uniquement
-      // - .download = compatibilité historique -> AUDIO YouTube
-      //
-      // yt-dlp est utilisé en priorité via youtube-dl-exec. Si le module n'est
-      // pas disponible sur l'hébergement, on tente le binaire yt-dlp installé
-      // sur le système, puis les APIs de secours pour les URLs YouTube.
+      // DOWNLOADER V3 — YouTube / Play / Song / TikTok
+      // Uses youtube-dl-exec (yt-dlp) + ffmpeg-static when available.
+      // Each command keeps its own media type:
+      //   song/play/yta/ytmp3 -> AUDIO
+      //   yt/ytv/video/mp4     -> VIDEO
+      //   tiktok/tt            -> VIDEO
+      //   url                  -> image URL uploader (kept separate)
       // ═════════════════════════════════════════════════════════════════════
 
-      let _youtubeDl = null;
-      let _ffmpegPath = null;
-      let _youtubeDlLoadError = null;
+      async function getYtDlpV3() {
+        try {
+          const mod = await import('youtube-dl-exec');
+          const ytDlp = mod.default || mod;
+          let ffmpegPath = null;
+          try {
+            const ff = await import('ffmpeg-static');
+            ffmpegPath = ff.default || ff;
+          } catch {}
+          return { ytDlp, ffmpegPath };
+        } catch (e) {
+          throw new Error('youtube-dl-exec n’est pas installé. Fais `npm install`.');
+        }
+      }
 
-      const YT_MAX_AUDIO = 45 * 1024 * 1024;
-      const YT_MAX_VIDEO = 45 * 1024 * 1024;
+      function isYouTubeUrlV3(value = '') {
+        return /^(https?:\/\/)?(www\.)?(youtube\.com|music\.youtube\.com|m\.youtube\.com|youtu\.be)\//i.test(String(value).trim());
+      }
 
-      function safeMediaName(name = 'media') {
+      function isTikTokUrlV3(value = '') {
+        return /^(https?:\/\/)?(www\.)?((vm|vt)\.)?tiktok\.com\//i.test(String(value).trim());
+      }
+
+      function safeMediaNameV3(name = 'media') {
         return String(name)
           .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
           .replace(/\s+/g, '_')
           .replace(/_+/g, '_')
-          .replace(/^[_\.]+|[_\.]+$/g, '')
           .slice(0, 70) || 'media';
       }
 
-      function isYouTubeUrl(value = '') {
-        return /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i.test(String(value).trim());
+      async function getYouTubeInfoV3(queryOrUrl) {
+        const { ytDlp, ffmpegPath } = await getYtDlpV3();
+        const q = String(queryOrUrl || '').trim();
+        if (!q) throw new Error('Recherche vide.');
+        const target = isYouTubeUrlV3(q) ? q : `ytsearch1:${q}`;
+        const opts = {
+          dumpSingleJson: true,
+          noPlaylist: true,
+          skipDownload: true,
+          noWarnings: true,
+          quiet: true,
+          ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
+        };
+        const info = await ytDlp(target, opts);
+        return info?.entries?.[0] || info;
       }
 
-      async function getYouTubeTools() {
-        if (_youtubeDl || _youtubeDlLoadError) {
-          return { youtubeDl: _youtubeDl, ffmpegPath: _ffmpegPath };
-        }
-
-        try {
-          const mod = await import('youtube-dl-exec');
-          _youtubeDl = mod.default || mod;
-        } catch (e) {
-          _youtubeDlLoadError = e;
-          _youtubeDl = null;
-        }
-
-        try {
-          const mod = await import('ffmpeg-static');
-          _ffmpegPath = mod.default || mod;
-        } catch {
-          _ffmpegPath = null;
-        }
-
-        return { youtubeDl: _youtubeDl, ffmpegPath: _ffmpegPath };
-      }
-
-      async function resolveYouTubeUrl(query) {
-        const q = String(query || '').trim();
-        if (!q) return null;
-        if (isYouTubeUrl(q)) return q;
-
-        // First choice: yt-dlp search. This is more reliable than scraping
-        // YouTube HTML or depending on a single public search mirror.
-        try {
-          const { youtubeDl } = await getYouTubeTools();
-          if (youtubeDl) {
-            const info = await youtubeDl(`ytsearch1:${q}`, {
-              dumpSingleJson: true,
-              noPlaylist: true,
-              skipDownload: true,
-              noWarnings: true,
-              quiet: true,
-            });
-            const entry = info?.entries?.[0] || info;
-            const url = entry?.webpage_url || entry?.original_url || entry?.url;
-            if (url && isYouTubeUrl(url)) return url;
-          }
-        } catch (e) {
-          console.warn('[YT SEARCH V3]', e?.message || e);
-        }
-
-        // Fallback search mirrors.
-        const instances = [
-          'https://pipedapi.adminforge.de',
-          'https://pipedapi.kavin.rocks',
-          'https://pipedapi.reallyaweso.me',
-        ];
-        for (const base of instances) {
-          try {
-            const r = await axios.get(`${base}/search`, {
-              params: { q, filter: 'videos' },
-              timeout: 7000,
-              headers: { 'User-Agent': 'Mozilla/5.0' },
-            });
-            const item = (r.data?.items || []).find(x =>
-              x?.url && (x.url.includes('/watch?v=') || x.url.includes('youtu.be/'))
-            );
-            if (item?.url) {
-              return item.url.startsWith('http')
-                ? item.url
-                : `https://www.youtube.com${item.url}`;
-            }
-          } catch {}
-        }
-
-        // Last fallback: YouTube result HTML.
-        try {
-          const r = await axios.get('https://www.youtube.com/results', {
-            params: { search_query: q },
-            timeout: 9000,
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            responseType: 'text',
-            transformResponse: [(d) => d],
-          });
-          const html = String(r.data || '');
-          const m = html.match(/"videoId":"([A-Za-z0-9_-]{11})"/);
-          if (m?.[1]) return `https://www.youtube.com/watch?v=${m[1]}`;
-        } catch {}
-
-        return null;
-      }
-
-      async function runSystemYtDlp(target, args, options = {}) {
-        try {
-          const result = await execFileAsync('yt-dlp', [
-            '--no-playlist',
-            '--no-warnings',
-            ...args,
-            '--',
-            target,
-          ], {
-            timeout: options.timeout || 120000,
-            maxBuffer: options.maxBuffer || 8 * 1024 * 1024,
-          });
-          return result;
-        } catch {
-          return null;
-        }
-      }
-
-      async function downloadYouTubeAudio(queryOrUrl) {
-        const target = isYouTubeUrl(queryOrUrl)
-          ? queryOrUrl
-          : `ytsearch1:${String(queryOrUrl).trim()}`;
+      async function downloadYouTubeAudioV3(queryOrUrl) {
+        const { ytDlp, ffmpegPath } = await getYtDlpV3();
+        const q = String(queryOrUrl || '').trim();
+        if (!q) throw new Error('Recherche vide.');
         const tmp = fs.mkdtempSync(path.join(DATA_DIR, 'yt-audio-v3-'));
-
+        const output = path.join(tmp, '%(id)s.%(ext)s');
         try {
-          const { youtubeDl, ffmpegPath } = await getYouTubeTools();
-
-          if (youtubeDl) {
-            const output = path.join(tmp, '%(id)s.%(ext)s');
-            const opts = {
-              noPlaylist: true,
-              noWarnings: true,
-              quiet: true,
-              format: 'bestaudio/best',
-              output,
-              extractAudio: true,
-              audioFormat: 'mp3',
-              audioQuality: '128K',
-              ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
-            };
-
-            const info = await youtubeDl(target, opts);
-            const files = fs.readdirSync(tmp)
-              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
-              .map(x => path.join(tmp, x))
-              .filter(x => fs.statSync(x).isFile());
-            const file = files[0];
-
-            if (file) {
-              const stat = fs.statSync(file);
-              if (stat.size > YT_MAX_AUDIO) {
-                throw new Error('Audio trop volumineux (maximum 45 MB).');
-              }
-              return {
-                buffer: fs.readFileSync(file),
-                title: info?.entries?.[0]?.title || info?.title || 'YouTube Audio',
-              };
-            }
-          }
-
-          // System fallback if youtube-dl-exec isn't installed.
-          const systemFile = path.join(tmp, '%(id)s.%(ext)s');
-          const system = await runSystemYtDlp(target, [
-            '-f', 'bestaudio/best',
-            '-x',
-            '--audio-format', 'mp3',
-            '--audio-quality', '128K',
-            '-o', systemFile,
-          ], { timeout: 120000 });
-
-          if (system) {
-            const files = fs.readdirSync(tmp)
-              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
-              .map(x => path.join(tmp, x))
-              .filter(x => fs.statSync(x).isFile());
-            const file = files[0];
-            if (file) {
-              const stat = fs.statSync(file);
-              if (stat.size > YT_MAX_AUDIO) throw new Error('Audio trop volumineux (maximum 45 MB).');
-              return {
-                buffer: fs.readFileSync(file),
-                title: path.basename(file).replace(/\.[^.]+$/, '') || 'YouTube Audio',
-              };
-            }
-          }
-
-          throw new Error('yt-dlp n’est pas disponible sur ce serveur.');
+          const target = isYouTubeUrlV3(q) ? q : `ytsearch1:${q}`;
+          const opts = {
+            noPlaylist: true,
+            noWarnings: true,
+            quiet: true,
+            format: 'bestaudio/best',
+            output,
+            extractAudio: true,
+            audioFormat: 'mp3',
+            audioQuality: '128K',
+            ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
+          };
+          const info = await ytDlp(target, opts);
+          const files = fs.readdirSync(tmp)
+            .map(x => path.join(tmp, x))
+            .filter(x => fs.statSync(x).isFile() && !x.endsWith('.part') && !x.endsWith('.ytdl'));
+          const file = files[0];
+          if (!file) throw new Error('yt-dlp n’a produit aucun fichier audio.');
+          const stat = fs.statSync(file);
+          if (stat.size > 20 * 1024 * 1024) throw new Error('Audio trop volumineux (maximum 20 MB).');
+          return {
+            buffer: fs.readFileSync(file),
+            title: info?.entries?.[0]?.title || info?.title || 'YouTube Audio',
+          };
         } finally {
           try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
         }
       }
 
-      async function downloadYouTubeVideo(queryOrUrl) {
-        const target = isYouTubeUrl(queryOrUrl)
-          ? queryOrUrl
-          : `ytsearch1:${String(queryOrUrl).trim()}`;
+      async function downloadYouTubeVideoV3(queryOrUrl) {
+        const { ytDlp, ffmpegPath } = await getYtDlpV3();
+        const q = String(queryOrUrl || '').trim();
+        if (!q) throw new Error('Recherche vide.');
         const tmp = fs.mkdtempSync(path.join(DATA_DIR, 'yt-video-v3-'));
-
+        const output = path.join(tmp, '%(id)s.%(ext)s');
         try {
-          const { youtubeDl, ffmpegPath } = await getYouTubeTools();
-
-          if (youtubeDl) {
-            const output = path.join(tmp, '%(id)s.%(ext)s');
-            const opts = {
-              noPlaylist: true,
-              noWarnings: true,
-              quiet: true,
-              format: 'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b[height<=720]',
-              mergeOutputFormat: 'mp4',
-              output,
-              ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
-            };
-
-            const info = await youtubeDl(target, opts);
-            const files = fs.readdirSync(tmp)
-              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
-              .map(x => path.join(tmp, x))
-              .filter(x => fs.statSync(x).isFile());
-            const file = files[0];
-
-            if (file) {
-              const stat = fs.statSync(file);
-              if (stat.size > YT_MAX_VIDEO) throw new Error('Vidéo trop volumineuse (maximum 45 MB).');
-              return {
-                buffer: fs.readFileSync(file),
-                title: info?.entries?.[0]?.title || info?.title || 'YouTube Video',
-              };
-            }
-          }
-
-          // System fallback.
-          const systemFile = path.join(tmp, '%(id)s.%(ext)s');
-          const system = await runSystemYtDlp(target, [
-            '-f', 'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b[height<=720]',
-            '--merge-output-format', 'mp4',
-            '-o', systemFile,
-          ], { timeout: 150000 });
-
-          if (system) {
-            const files = fs.readdirSync(tmp)
-              .filter(x => !x.endsWith('.part') && !x.endsWith('.ytdl'))
-              .map(x => path.join(tmp, x))
-              .filter(x => fs.statSync(x).isFile());
-            const file = files[0];
-            if (file) {
-              const stat = fs.statSync(file);
-              if (stat.size > YT_MAX_VIDEO) throw new Error('Vidéo trop volumineuse (maximum 45 MB).');
-              return {
-                buffer: fs.readFileSync(file),
-                title: path.basename(file).replace(/\.[^.]+$/, '') || 'YouTube Video',
-              };
-            }
-          }
-
-          throw new Error('yt-dlp n’est pas disponible sur ce serveur.');
+          const target = isYouTubeUrlV3(q) ? q : `ytsearch1:${q}`;
+          const opts = {
+            noPlaylist: true,
+            noWarnings: true,
+            quiet: true,
+            format: 'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b[height<=720]',
+            mergeOutputFormat: 'mp4',
+            output,
+            ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
+          };
+          const info = await ytDlp(target, opts);
+          const files = fs.readdirSync(tmp)
+            .map(x => path.join(tmp, x))
+            .filter(x => fs.statSync(x).isFile() && !x.endsWith('.part') && !x.endsWith('.ytdl'));
+          const file = files[0];
+          if (!file) throw new Error('yt-dlp n’a produit aucun fichier vidéo.');
+          const stat = fs.statSync(file);
+          if (stat.size > 45 * 1024 * 1024) throw new Error('Vidéo trop volumineuse (maximum 45 MB).');
+          return {
+            buffer: fs.readFileSync(file),
+            title: info?.entries?.[0]?.title || info?.title || 'YouTube Video',
+          };
         } finally {
           try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
         }
       }
 
-      async function youtubeApiAudio(queryOrUrl) {
-        const ytUrl = await resolveYouTubeUrl(queryOrUrl);
-        if (!ytUrl) throw new Error('Aucun résultat YouTube trouvé.');
-
-        for (const host of ['api.giftedtech.web.id', 'api.giftedtech.my.id']) {
-          try {
-            const r = await axios.get(`https://${host}/api/download/ytmp3`, {
-              params: { apikey: 'gifted', url: ytUrl },
-              timeout: 25000,
-              headers: { 'User-Agent': 'Mozilla/5.0' },
-            });
-            const d = r.data?.result || r.data;
-            const url = d?.download_url || d?.dl_url || d?.url || d?.audio;
-            if (!url) continue;
-            const buffer = await downloadMediaBuffer(url, YT_MAX_AUDIO);
-            return { buffer, title: d?.title || d?.name || 'YouTube Audio' };
-          } catch {}
-        }
-        throw new Error('Aucun service audio YouTube disponible.');
-      }
-
-      async function youtubeApiVideo(queryOrUrl) {
-        const ytUrl = await resolveYouTubeUrl(queryOrUrl);
-        if (!ytUrl) throw new Error('Aucun résultat YouTube trouvé.');
-
-        for (const host of ['api.giftedtech.web.id', 'api.giftedtech.my.id']) {
-          try {
-            const r = await axios.get(`https://${host}/api/download/ytmp4`, {
-              params: { apikey: 'gifted', url: ytUrl },
-              timeout: 30000,
-              headers: { 'User-Agent': 'Mozilla/5.0' },
-            });
-            const d = r.data?.result || r.data;
-            const url = d?.download_url || d?.dl_url || d?.url || d?.video;
-            if (!url) continue;
-            const buffer = await downloadMediaBuffer(url, YT_MAX_VIDEO);
-            return { buffer, title: d?.title || d?.name || 'YouTube Video' };
-          } catch {}
-        }
-        throw new Error('Aucun service vidéo YouTube disponible.');
-      }
-
-      async function sendYouTubeAudio(queryOrUrl) {
-        let media;
-        try {
-          media = await downloadYouTubeAudio(queryOrUrl);
-        } catch (primaryError) {
-          console.warn('[YT AUDIO V3 FALLBACK]', primaryError?.message || primaryError);
-          media = await youtubeApiAudio(queryOrUrl);
-        }
-
+      async function sendYouTubeAudioV3(arg) {
+        const media = await downloadYouTubeAudioV3(arg);
         await natsu.sendMessage(jid, {
           audio: media.buffer,
           mimetype: 'audio/mpeg',
           ptt: false,
-          fileName: `${safeMediaName(media.title)}.mp3`,
+          fileName: `${safeMediaNameV3(media.title)}.mp3`,
           contextInfo: forwardedContext(),
         }, { quoted: msg });
       }
 
-      async function sendYouTubeVideo(queryOrUrl) {
-        let media;
-        try {
-          media = await downloadYouTubeVideo(queryOrUrl);
-        } catch (primaryError) {
-          console.warn('[YT VIDEO V3 FALLBACK]', primaryError?.message || primaryError);
-          media = await youtubeApiVideo(queryOrUrl);
-        }
-
+      async function sendYouTubeVideoV3(arg) {
+        const media = await downloadYouTubeVideoV3(arg);
         await natsu.sendMessage(jid, {
           video: media.buffer,
           mimetype: 'video/mp4',
-          fileName: `${safeMediaName(media.title)}.mp4`,
+          fileName: `${safeMediaNameV3(media.title)}.mp4`,
           caption: `🎬 *${media.title}*`,
           contextInfo: forwardedContext(),
         }, { quoted: msg });
       }
 
-      async function downloadMediaBuffer(url, maxBytes = 45 * 1024 * 1024) {
-        const r = await axios.get(url, {
-          responseType: 'arraybuffer',
-          timeout: 90000,
-          maxContentLength: maxBytes,
-          maxBodyLength: maxBytes,
-          headers: {
-            'User-Agent': 'Mozilla/5.0',
-            'Accept': '*/*',
-          },
-        });
-        const buf = Buffer.from(r.data);
-        if (!buf.length) throw new Error('Fichier vide.');
-        if (buf.length > maxBytes) throw new Error('Fichier trop volumineux.');
-        return buf;
-      }
-
-      case 'apk': {
-        if (!arg) { await reply(`❌ Usage: *${PREFIX}apk <app name>*`); break; }
-        const d = await tryFetch([`https://api.giftedtech.web.id/api/download/apkdl?apikey=gifted&appName=${encodeURIComponent(arg)}`]);
-        const r = d?.result;
-        if (!r?.dllink) { await reply('❌ Not found.'); break; }
-        await reply(`📲 *${r.name}*\n📦 ${r.size}\n🔗 ${r.dllink}`);
-        break;
-      }
-
-      // ─────────────────────────────────────────────────────────────────────
-      // 🎵 SONG — recherche d'une chanson, AUDIO uniquement
-      // ─────────────────────────────────────────────────────────────────────
-      case 'song': {
-        if (!arg) {
-          await reply(`❌ Usage: *${PREFIX}song <nom de la chanson>*`);
-          break;
+      async function downloadTikTokV3(url) {
+        const { ytDlp, ffmpegPath } = await getYtDlpV3();
+        const q = String(url || '').trim();
+        if (!isTikTokUrlV3(q)) throw new Error('Utilise un lien TikTok valide.');
+        const tmp = fs.mkdtempSync(path.join(DATA_DIR, 'tiktok-v3-'));
+        const output = path.join(tmp, '%(id)s.%(ext)s');
+        try {
+          const info = await ytDlp(q, {
+            noPlaylist: true,
+            noWarnings: true,
+            quiet: true,
+            format: 'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/b[height<=720]',
+            mergeOutputFormat: 'mp4',
+            output,
+            ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
+          });
+          const files = fs.readdirSync(tmp)
+            .map(x => path.join(tmp, x))
+            .filter(x => fs.statSync(x).isFile() && !x.endsWith('.part') && !x.endsWith('.ytdl'));
+          const file = files[0];
+          if (!file) throw new Error('Aucun fichier TikTok produit.');
+          const stat = fs.statSync(file);
+          if (stat.size > 45 * 1024 * 1024) throw new Error('TikTok trop volumineux (maximum 45 MB).');
+          return {
+            buffer: fs.readFileSync(file),
+            title: info?.title || 'TikTok',
+          };
+        } finally {
+          try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
         }
+      }
+
+      // 🎵 SONG — AUDIO uniquement
+      case 'song': {
+        if (!arg) { await reply(`❌ Usage: *${PREFIX}song <nom de la chanson>*`); break; }
         try {
           await reply(`🎵 Recherche de *${arg}*…`);
-          await sendYouTubeAudio(arg);
+          await sendYouTubeAudioV3(arg);
         } catch (e) {
           console.error('[SONG V3]', e?.stack || e);
           await reply(`❌ *SONG* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
@@ -3340,17 +3129,12 @@ pendant la récupération de l'image.
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────────
-      // ▶️ PLAY — recherche YouTube/titre, AUDIO uniquement
-      // ─────────────────────────────────────────────────────────────────────
+      // ▶️ PLAY — AUDIO uniquement
       case 'play': {
-        if (!arg) {
-          await reply(`❌ Usage: *${PREFIX}play <titre ou lien YouTube>*`);
-          break;
-        }
+        if (!arg) { await reply(`❌ Usage: *${PREFIX}play <titre ou lien YouTube>*`); break; }
         try {
           await reply(`▶️ Recherche de *${arg}*…`);
-          await sendYouTubeAudio(arg);
+          await sendYouTubeAudioV3(arg);
         } catch (e) {
           console.error('[PLAY V3]', e?.stack || e);
           await reply(`❌ *PLAY* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
@@ -3358,18 +3142,13 @@ pendant la récupération de l'image.
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────────
-      // 🎧 YTA / YTMP3 — URL ou recherche YouTube, AUDIO uniquement
-      // ─────────────────────────────────────────────────────────────────────
+      // 🎧 YTA / YTMP3 — AUDIO uniquement
       case 'yta':
       case 'ytmp3': {
-        if (!arg) {
-          await reply(`❌ Usage: *${PREFIX}${cmd} <lien ou recherche YouTube>*`);
-          break;
-        }
+        if (!arg) { await reply(`❌ Usage: *${PREFIX}${cmd} <lien ou recherche YouTube>*`); break; }
         try {
           await reply(`🎧 *${cmd.toUpperCase()}* — conversion audio…`);
-          await sendYouTubeAudio(arg);
+          await sendYouTubeAudioV3(arg);
         } catch (e) {
           console.error(`[${cmd.toUpperCase()} V3]`, e?.stack || e);
           await reply(`❌ *${cmd}* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
@@ -3377,20 +3156,15 @@ pendant la récupération de l'image.
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────────
       // 🎬 YT / YTV / VIDEO / MP4 — VIDEO uniquement
-      // ─────────────────────────────────────────────────────────────────────
       case 'yt':
       case 'ytv':
       case 'video':
       case 'mp4': {
-        if (!arg) {
-          await reply(`❌ Usage: *${PREFIX}${cmd} <lien ou recherche YouTube>*`);
-          break;
-        }
+        if (!arg) { await reply(`❌ Usage: *${PREFIX}${cmd} <lien ou recherche YouTube>*`); break; }
         try {
           await reply(`🎬 *${cmd.toUpperCase()}* — téléchargement vidéo…`);
-          await sendYouTubeVideo(arg);
+          await sendYouTubeVideoV3(arg);
         } catch (e) {
           console.error(`[${cmd.toUpperCase()} V3]`, e?.stack || e);
           await reply(`❌ *${cmd}* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
@@ -3398,17 +3172,12 @@ pendant la récupération de l'image.
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────────
-      // 📥 DOWNLOAD — compatibilité avec l'ancien alias : AUDIO YouTube
-      // ─────────────────────────────────────────────────────────────────────
+      // 📥 DOWNLOAD — audio YouTube, pour compatibilité avec l'ancien alias
       case 'download': {
-        if (!arg) {
-          await reply(`❌ Usage: *${PREFIX}download <titre ou lien YouTube>*`);
-          break;
-        }
+        if (!arg) { await reply(`❌ Usage: *${PREFIX}download <titre ou lien YouTube>*`); break; }
         try {
-          await reply(`📥 Recherche du média *${arg}*…`);
-          await sendYouTubeAudio(arg);
+          await reply(`📥 Recherche de *${arg}*…`);
+          await sendYouTubeAudioV3(arg);
         } catch (e) {
           console.error('[DOWNLOAD V3]', e?.stack || e);
           await reply(`❌ *DOWNLOAD* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
@@ -3416,64 +3185,23 @@ pendant la récupération de l'image.
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────────
-      // 🌐 FACEBOOK / INSTAGRAM / PINTEREST
-      // ─────────────────────────────────────────────────────────────────────
-      case 'fb':
-      case 'facebook':
-      case 'insta':
-      case 'instagram':
-      case 'pint': {
-        if (!arg) {
-          await reply(`❌ Usage: *${PREFIX}${cmd} <lien>*`);
-          break;
-        }
+      // 🎵 TIKTOK — VIDEO uniquement
+      case 'tiktok':
+      case 'tt': {
+        if (!arg) { await reply(`❌ Usage: *${PREFIX}tiktok <lien TikTok>*`); break; }
         try {
-          await reply(`⏳ *${cmd.toUpperCase()}* — téléchargement…`);
-          const aliases = {
-            facebook: 'fb',
-            instagram: 'insta',
-          };
-          const key = aliases[cmd] || cmd;
-          const endpoints = {
-            fb: [
-              `https://api.giftedtech.web.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`,
-              `https://api.giftedtech.my.id/api/download/facebook?apikey=gifted&url=${encodeURIComponent(arg)}`,
-            ],
-            insta: [
-              `https://api.giftedtech.web.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`,
-              `https://api.giftedtech.my.id/api/download/instagram?apikey=gifted&url=${encodeURIComponent(arg)}`,
-            ],
-            pint: [
-              `https://api.giftedtech.web.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`,
-              `https://api.giftedtech.my.id/api/download/pinterestdl?apikey=gifted&url=${encodeURIComponent(arg)}`,
-            ],
-          };
-          const d = await tryFetch(endpoints[key] || []);
-          const r = d?.result || d;
-          const url = r?.download_url || r?.dl_url || r?.url || r?.video || r?.image;
-          if (!url || !/^https?:\/\//i.test(url)) throw new Error('Aucun lien de téléchargement valide.');
-
-          const buffer = await downloadMediaBuffer(url);
-          const isImage = key === 'pint' && /\.(?:jpe?g|png|webp)(?:\?|$)/i.test(url);
-          if (isImage) {
-            await natsu.sendMessage(jid, {
-              image: buffer,
-              caption: `📥 *${r?.title || 'Pinterest'}*`,
-              contextInfo: forwardedContext(),
-            }, { quoted: msg });
-          } else {
-            await natsu.sendMessage(jid, {
-              video: buffer,
-              mimetype: 'video/mp4',
-              fileName: `${safeMediaName(r?.title || key)}.mp4`,
-              caption: `📥 *${r?.title || key}*`,
-              contextInfo: forwardedContext(),
-            }, { quoted: msg });
-          }
+          await reply('⏳ TikTok — téléchargement en cours…');
+          const media = await downloadTikTokV3(arg);
+          await natsu.sendMessage(jid, {
+            video: media.buffer,
+            mimetype: 'video/mp4',
+            fileName: `${safeMediaNameV3(media.title)}.mp4`,
+            caption: `🎵 *${media.title}*`,
+            contextInfo: forwardedContext(),
+          }, { quoted: msg });
         } catch (e) {
-          console.error(`[${cmd.toUpperCase()} V3]`, e?.stack || e);
-          await reply(`❌ *${cmd}* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
+          console.error('[TIKTOK V3]', e?.stack || e);
+          await reply(`❌ *TIKTOK* a échoué.\n\n${String(e?.message || e).slice(0, 500)}`);
         }
         break;
       }
